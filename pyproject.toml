@@ -1,0 +1,106 @@
+# Domain Copilot -- tooling configuration.
+#
+# Architecture boundaries (SYSTEM-DESIGN.md A.3.2, BRD AR-1) are enforced two
+# ways: the declarative import-linter contracts below (run as `lint-imports`
+# in CI) and the AST scan in tests/architecture/test_boundaries.py (run in the
+# normal pytest step). Both must pass before AR-1 is marked implemented.
+
+# --------------------------------------------------------------------------- #
+# Architecture import contracts (import-linter)
+# --------------------------------------------------------------------------- #
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure (no inner-layer, framework or SDK imports)"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "app.application",
+    "app.infrastructure",
+    "app.presentation",
+    "app.core",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "sqlalchemy",
+    "alembic",
+    "psycopg",
+    "pgvector",
+    "redis",
+    "celery",
+    "groq",
+    "sentence_transformers",
+    "pydantic",
+    "pydantic_settings",
+    "passlib",
+    "httpx",
+]
+
+[[tool.importlinter.contracts]]
+name = "Application depends only on the domain (no framework or SDK imports)"
+type = "forbidden"
+source_modules = ["app.application"]
+forbidden_modules = [
+    "app.infrastructure",
+    "app.presentation",
+    "app.core",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+    "sqlalchemy",
+    "alembic",
+    "psycopg",
+    "pgvector",
+    "redis",
+    "celery",
+    "groq",
+    "sentence_transformers",
+    "pydantic",
+    "pydantic_settings",
+    "passlib",
+    "httpx",
+]
+
+[[tool.importlinter.contracts]]
+name = "Presentation reaches infrastructure only through the composition root"
+type = "forbidden"
+source_modules = ["app.presentation"]
+forbidden_modules = ["app.infrastructure"]
+# Presentation -> core.container -> infrastructure is the intended wiring path;
+# only a *direct* presentation->infrastructure import is a violation.
+allow_indirect_imports = true
+
+# --------------------------------------------------------------------------- #
+# Tests
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+# --------------------------------------------------------------------------- #
+# Lint & format (ruff)
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+# --------------------------------------------------------------------------- #
+# Type checking (mypy)
+# --------------------------------------------------------------------------- #
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ['\.venv']
+
+[[tool.mypy.overrides]]
+module = "app.*"
+disallow_untyped_defs = true

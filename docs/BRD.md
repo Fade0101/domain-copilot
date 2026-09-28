@@ -528,19 +528,19 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 | FR-7     | API Surface & UI                     | ❌ Not Started |                                            |
 | FR-8     | Authentication & RBAC                | ❌ Not Started |                                            |
 | FR-9     | Observability & Cost Accounting      | ❌ Not Started |                                            |
-| AR-1     | Clean Architecture                   | 🔶 Partial  | Folder structure scaffolded                   |
+| AR-1     | Clean Architecture                   | ✅ Implemented | Layer boundaries enforced by import-linter (3 contracts) **and** AST boundary test, both green; RegisterDocument slice proves ports/adapters swap (#2, ADR-005) |
 | AR-2     | Provider Abstraction                 | ❌ Not Started |                                            |
-| AR-3     | Dependency Injection                 | ❌ Not Started |                                            |
+| AR-3     | Dependency Injection                 | 🔶 Partial  | `Depends()` + constructor injection + composition root (`core/container.py`) demonstrated by RegisterDocument; app-wide DI incomplete |
 | AR-4     | Configuration & Prompts              | ❌ Not Started |                                            |
-| AR-5     | Domain Errors                        | ❌ Not Started |                                            |
+| AR-5     | Domain Errors                        | 🔶 Partial  | Typed `DomainError` taxonomy (`InvariantViolationError`→422, `InvalidStateTransitionError`→409) + seeded anchors; more failures added by later workflows |
 | AR-6     | Data Stores & Migrations             | ❌ Not Started |                                            |
 | AR-7     | ADRs (≥4)                            | ❌ Not Started |                                            |
-| AR-8     | Testing                              | ❌ Not Started |                                            |
+| AR-8     | Testing                              | 🔶 Partial  | Unit (domain + application via fakes), integration (documents API), and architecture boundary tests; full integration/contract suite later |
 | AR-9     | Packaging (docker compose)           | ❌ Not Started |                                            |
 | SEC-1    | OWASP Web Top 10                     | ❌ Not Started |                                            |
 | SEC-2    | OWASP LLM Top 10                     | ❌ Not Started |                                            |
 | SEC-3    | Secrets Hygiene                      | ❌ Not Started |                                            |
-| ENG-1    | ≥30 Commits / ≥6 Days               | ❌ Not Started | 2 commits on 1 day so far                  |
+| ENG-1    | ≥30 Commits / ≥6 Days               | ❌ Not Started | 4 commits across 3 days so far             |
 | ENG-2    | ≥8 PRs                              | ❌ Not Started |                                            |
 | ENG-3    | GitHub Issues + Board                | ❌ Not Started |                                            |
 | ENG-4    | GitHub Actions CI                    | ❌ Not Started |                                            |

@@ -30,7 +30,11 @@ jobs:
       - name: Type check with mypy
         run: |
           mypy .
-          
+
+      - name: Architecture import contracts
+        run: |
+          lint-imports
+
       - name: Run Tests
         run: |
           pytest
