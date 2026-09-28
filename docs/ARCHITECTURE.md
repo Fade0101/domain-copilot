@@ -13,33 +13,90 @@ For the complete architectural baseline, target architecture, implemented archit
 The implementation follows Clean/Hexagonal Architecture with dependencies directed inward.
 
 ```text
-domain/
-    Enterprise business rules, entities, value objects,
-    domain errors, and domain-level ports.
-
-application/
-    Use cases, application services, orchestration,
-    workflow state, and application-level ports/contracts.
-
-adapters/
-    Interface adapters such as API controllers,
-    presenters, repositories, and external-facing adapters.
-
-infrastructure/
-    PostgreSQL, pgvector, Redis, Celery, LLM providers,
-    embedding/reranking implementations, security integrations,
-    and other external technology implementations.
-
-api/
-    FastAPI application, routes, authentication middleware,
-    request/response schemas, and SSE endpoints.
-
-workers/
-    Celery tasks and background execution for T7
-    long-running operations.
+app/
+  domain/          Enterprise business rules: entities, value objects, domain
+                   errors. Pure standard library -- no app.* layer, no third-party.
+  application/     Use cases, ports (typing.Protocol), commands/DTOs. Imports only
+                   app.domain -- no framework, ORM, or SDK; no pydantic.
+  infrastructure/  Adapters implementing the application ports. SDKs live here
+                   (persistence, LLM/embedding providers, vector store, queue).
+  presentation/    FastAPI app, routes, pydantic request/response schemas, SSE,
+                   and Depends() wiring. Maps domain errors to HTTP status codes.
+  core/            Configuration and the composition root (container.py) that
+                   constructs adapters and injects them into use cases.
 ```
 
-The exact directory structure may evolve during implementation, but dependency direction and architectural boundaries must remain intact.
+**Naming note (reconciled with the frozen SDD).** `SYSTEM-DESIGN.md` describes
+the layers using the conceptual names `adapters/`, `api/`, and `workers/`. The
+implementation folds these into the tree above without changing dependency
+direction:
+
+| SDD conceptual name | Implemented location |
+| ------------------- | -------------------- |
+| `adapters/` (interface adapters) | `app/infrastructure/*` (driven adapters) and `app/presentation/*` (driving adapters) |
+| `api/` (FastAPI app, routes, schemas, SSE) | `app/presentation/api/*` |
+| `workers/` (Celery/T7 background execution) | `app/infrastructure/*` (future ticket) |
+
+The exact directory structure may evolve during implementation, but dependency
+direction and architectural boundaries must remain intact, and are enforced
+automatically (see §1.2).
+
+### 1.1 Where does new code go?
+
+| Kind of code | Layer | Path |
+| ------------ | ----- | ---- |
+| Entity, value object, domain error, invariant | `domain` | `app/domain/<context>/` |
+| Use case, port (interface), command, DTO | `application` | `app/application/<context>/`, ports in `app/application/ports/` |
+| SDK / DB / LLM / queue adapter implementing a port | `infrastructure` | `app/infrastructure/<concern>/` |
+| HTTP route, pydantic schema, `Depends()` provider | `presentation` | `app/presentation/api/` |
+| Settings, dependency wiring (composition root) | `core` | `app/core/` |
+
+Rule of thumb: **an SDK import belongs only in `infrastructure` (or `presentation`
+for the web framework).** If business logic needs a capability, it depends on a
+**port** in `app/application/ports/`; the concrete adapter is wired in
+`app/core/container.py`.
+
+### 1.2 Enforcement
+
+The per-layer import bans (SDD §A.3.2) are enforced two complementary ways:
+
+- **import-linter** contracts in `pyproject.toml` (`[tool.importlinter]`), run as
+  the `lint-imports` step in CI.
+- an **AST boundary test** (`tests/architecture/test_boundaries.py`) run in the
+  normal `pytest` step.
+
+Both must pass before AR-1 is considered implemented. The rationale is recorded
+in [`adr/ADR-005-clean-hexagonal-boundary-enforcement.md`](./adr/ADR-005-clean-hexagonal-boundary-enforcement.md).
+
+### 1.3 Representative request flow (`RegisterDocument`)
+
+The first implemented vertical slice registers a document's metadata prior to
+async ingestion. It exercises three ports and proves the layering end to end:
+
+```text
+POST /api/v1/documents
+   │  app/presentation/api/routes/documents.py      (route + pydantic schema)
+   ▼
+Depends(get_register_document_use_case)
+   │  app/presentation/api/dependencies.py
+   ▼
+Container.register_document_use_case()
+   │  app/core/container.py                          (composition root; only
+   │                                                   module importing infra)
+   ▼
+RegisterDocumentUseCase.execute(command)
+   │  app/application/documents/use_cases.py         (depends on ports only)
+   ▼
+IDocumentRepository  (port)                          app/application/ports/
+   ▼
+InMemoryDocumentRepository  (adapter)                app/infrastructure/persistence/
+```
+
+Registration is **idempotent by `content_hash`**: a new hash creates and persists
+a `Document` (HTTP `201`); an existing hash returns the existing document without
+creating a duplicate or overwriting its metadata (HTTP `200`). The in-memory
+adapter is interim; a SQLAlchemy/pgvector adapter replaces it behind the same
+port in a later ticket.
 
 ---
 
