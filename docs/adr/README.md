@@ -16,6 +16,7 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 | ADR | Title | Status | Ticket |
 | --- | ----- | ------ | ------ |
 | [ADR-005](./ADR-005-clean-hexagonal-boundary-enforcement.md) | Clean/Hexagonal boundary enforcement | Accepted | #2 |
+| [ADR-006](./ADR-006-configuration-prompts-and-error-model.md) | Configuration, prompts & error model | Accepted | #3 |
 
 ## Reserved (not yet written)
 

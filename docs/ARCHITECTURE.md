@@ -98,6 +98,52 @@ creating a duplicate or overwriting its metadata (HTTP `200`). The in-memory
 adapter is interim; a SQLAlchemy/pgvector adapter replaces it behind the same
 port in a later ticket.
 
+### 1.4 Configuration (AR-4)
+
+Configuration is externalised via `pydantic-settings` in
+[`app/core/config.py`](../app/core/config.py) — the only place pydantic-settings
+appears (an edge concern). `Settings` composes nested groups (`llm`, `embedding`,
+`queue`, `retrieval`, `limits`, `retry`, `prompts`) populated with the `__` nested
+delimiter, so `LLM__MODEL` sets `settings.llm.model`. Every field has a safe
+default; real providers/brokers are supplied per environment. **Secrets never live
+in code or git (C6):** API keys are `SecretStr | None = None`, read from the
+environment at runtime and masked in logs/`repr`. `.env.example` documents every
+variable with blank secret values. Adapters that consume this config land in
+later tickets (#7 providers, #9 vector store, #20 queue).
+
+### 1.5 Prompts (AR-4)
+
+Product prompts are **versioned artifacts, never inline literals**. The
+application depends on the `IPromptProvider` port + framework-free `Prompt` value
+([`app/application/ports/prompts.py`](../app/application/ports/prompts.py)); the
+YAML loader ([`app/infrastructure/prompts/yaml_prompt_provider.py`](../app/infrastructure/prompts/yaml_prompt_provider.py))
+is the only module importing a YAML parser. Artifacts live in `prompts/*.yaml`,
+each declaring its own `id`/`version`; the loader validates the schema eagerly at
+startup (a malformed prompt fails boot) and resolves versions deterministically —
+`get(id)` returns the highest version, `get(id, version=n)` returns exactly `n`.
+
+### 1.6 Error handling at the boundary (AR-5; SDD §A.5.1)
+
+Use cases raise typed domain/application errors and never touch `HTTPException`.
+[`app/presentation/api/errors.py`](../app/presentation/api/errors.py) is the
+single place that maps errors *by type* to a stable body `{"detail", "code"}`.
+Responses split by fault: **client faults** (422/409/404/400) carry the error's
+own message; **server faults** — `ConfigurationError` and any unmapped
+`Exception` (both 500) — carry a fixed generic message while the real cause is
+logged server-side and never returned, so internal detail cannot leak.
+
+### 1.7 DI conventions (AR-3)
+
+The composition root ([`app/core/container.py`](../app/core/container.py)) is the
+only adapter-construction site; it builds adapters (and the prompt provider) from
+config and injects them into use cases by **constructor injection**. FastAPI
+`Depends()` bridges request scope to the container via
+[`app/presentation/api/dependencies.py`](../app/presentation/api/dependencies.py).
+Presentation never instantiates an adapter directly. This is implemented for the
+current application surface; future adapters are wired here as their tickets land.
+The rationale for §§1.4–1.7 is recorded in
+[`adr/ADR-006-configuration-prompts-and-error-model.md`](./adr/ADR-006-configuration-prompts-and-error-model.md).
+
 ---
 
 ## 2. Dependency Direction

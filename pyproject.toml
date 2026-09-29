@@ -36,6 +36,7 @@ forbidden_modules = [
     "pydantic_settings",
     "passlib",
     "httpx",
+    "yaml",
 ]
 
 [[tool.importlinter.contracts]]
@@ -61,6 +62,7 @@ forbidden_modules = [
     "pydantic_settings",
     "passlib",
     "httpx",
+    "yaml",
 ]
 
 [[tool.importlinter.contracts]]

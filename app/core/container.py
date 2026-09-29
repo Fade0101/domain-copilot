@@ -19,12 +19,14 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.ports.prompts import IPromptProvider
 from app.application.ports.repositories import IDocumentRepository
 from app.application.ports.system import IClock, IIdGenerator
 from app.core.config import Settings, get_settings
 from app.infrastructure.persistence.in_memory.document_repository import (
     InMemoryDocumentRepository,
 )
+from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
 
@@ -41,10 +43,19 @@ class Container:
         self._document_repository: IDocumentRepository = InMemoryDocumentRepository()
         self._clock: IClock = SystemClock()
         self._id_generator: IIdGenerator = UuidGenerator()
+        # Eagerly loads and validates prompts/*.yaml when strict -- a malformed
+        # prompt fails app startup here rather than on first request.
+        self._prompt_provider: IPromptProvider = YamlPromptProvider(
+            settings.prompts.directory, strict=settings.prompts.strict
+        )
 
     @property
     def document_repository(self) -> IDocumentRepository:
         return self._document_repository
+
+    @property
+    def prompt_provider(self) -> IPromptProvider:
+        return self._prompt_provider
 
     def register_document_use_case(self) -> RegisterDocumentUseCase:
         return RegisterDocumentUseCase(
