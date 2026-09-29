@@ -4,5 +4,34 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
+.env
+.*
 docs/ISSUE-AUDIT.md
+
+
+!.claude/
+!.agents/
+.claude/settings.local.json
+.venv/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.env
+.*
+!.env.example
+.claude/settings.local.json
+
+# Local-only working files.
+docs/ISSUE-AUDIT.md
+.tmp-issue-bodies/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

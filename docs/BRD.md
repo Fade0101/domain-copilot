@@ -546,8 +546,8 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 | ENG-4    | GitHub Actions CI                    | ❌ Not Started |                                            |
 | ENG-5    | Branch Protection                    | ❌ Not Started |                                            |
 | ENG-6    | Repo Hygiene                         | 🔶 Partial  | README, .gitignore exist (empty)              |
-| ENG-7    | Agentic Workflow Doc                 | ❌ Not Started |                                            |
-| ENG-8    | AI Usage Log                         | ❌ Not Started |                                            |
+| ENG-7    | Agentic Workflow Doc                 | ✅ Implemented | 6 categories documented in `AGENTIC-WORKFLOW.md`: instruction files, versioned prompts/skills, scoped sub-agents (security-reviewer, test-writer, doc-writer), pre-commit hooks, custom commands, versioned prompt library (#4) |
+| ENG-8    | AI Usage Log                         | ✅ Implemented | `AI-USAGE-LOG.md` with 5 real entries: delegated tasks, AI mistakes (architecture violation, error leakage, false status claim, boolean edge case), verification methods (#4) |
 | T7-01    | Real Queue + Workers                 | ❌ Not Started |                                            |
 | T7-02    | Immediate Return (HTTP 202)          | ❌ Not Started |                                            |
 | T7-03    | Progress Push (SSE)                  | ❌ Not Started |                                            |
