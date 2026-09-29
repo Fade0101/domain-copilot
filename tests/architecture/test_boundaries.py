@@ -34,6 +34,7 @@ _FORBIDDEN_THIRD_PARTY = {
     "pydantic",
     "pydantic_settings",
     "passlib",
+    "yaml",
 }
 
 
