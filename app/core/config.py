@@ -114,3 +114,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the cached process-wide :class:`Settings` instance."""
     return Settings()
+    return Settings()
