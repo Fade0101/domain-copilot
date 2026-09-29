@@ -18,9 +18,9 @@ from pathlib import Path
 
 def _run(label: str, cmd: list[str]) -> bool:
     """Run a command and report pass/fail."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {label}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     repo_root = str(Path(__file__).resolve().parent.parent)
     result = subprocess.run(cmd, cwd=repo_root)
     if result.returncode != 0:
@@ -52,9 +52,9 @@ def main() -> int:
     for label, cmd in checks:
         results.append((label, _run(label, cmd)))
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     all_passed = True
     for label, passed in results:
         status = "✅" if passed else "❌"
