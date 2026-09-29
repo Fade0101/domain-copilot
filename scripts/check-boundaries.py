@@ -19,7 +19,7 @@ from pathlib import Path
 
 def main() -> int:
     # Ensure UTF-8 output on Windows consoles
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined, union-attr]
 
     print("=" * 60)
     print("  Architecture Boundary Check")

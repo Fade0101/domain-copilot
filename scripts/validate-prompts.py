@@ -25,7 +25,7 @@ from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 
 def main() -> int:
     # Ensure UTF-8 output on Windows consoles
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined, union-attr]
 
     prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
 

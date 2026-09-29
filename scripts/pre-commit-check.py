@@ -33,7 +33,7 @@ def _run(label: str, cmd: list[str]) -> bool:
 def main() -> int:
     """Run all quality gates. Returns 0 on success, 1 on any failure."""
     # Ensure UTF-8 output on Windows consoles
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined, union-attr]
 
     python = sys.executable
     # lint-imports is a script entry point, not a -m module
