@@ -57,9 +57,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_sessions_user_id"), "sessions", ["user_id"], unique=False)
     op.create_index(op.f("ix_jobs_user_id"), "jobs", ["user_id"], unique=False)
-    op.create_index(
-        op.f("ix_workflow_runs_user_id"), "workflow_runs", ["user_id"], unique=False
-    )
+    op.create_index(op.f("ix_workflow_runs_user_id"), "workflow_runs", ["user_id"], unique=False)
     op.create_index(op.f("ix_traces_user_id"), "traces", ["user_id"], unique=False)
 
 
