@@ -9,13 +9,14 @@ are masked in logs and ``repr``.
 
 Grouped settings are nested pydantic models populated with the ``__`` delimiter,
 so e.g. ``LLM__MODEL`` sets ``settings.llm.model`` and ``RETRY__MAX_RETRIES``
-sets ``settings.retry.max_retries``. Every field has a safe default so the app
-boots without a ``.env`` in development; real providers/brokers/keys are supplied
-by the environment in each deployment. ``extra="ignore"`` lets the shared
-``.env`` carry variables owned by other tickets (auth, database) without breaking
-here. Concrete provider *adapters* that consume this config land in their own
-tickets (#7 providers, #9 vector store, #20 queue); this ticket owns the config
-surface itself.
+sets ``settings.retry.max_retries``. Almost every field has a safe default so the
+app boots without a ``.env`` in development; real providers/brokers/keys are
+supplied by the environment in each deployment. The exceptions are the auth
+signing secret and demo password, which have no defaults on purpose -- see
+:class:`AuthSettings`. ``extra="ignore"`` lets the shared ``.env`` carry variables
+owned by other tickets (database) without breaking here. Concrete provider
+*adapters* that consume this config land in their own tickets (#7 providers,
+#9 vector store, #20 queue); this ticket owns the config surface itself.
 """
 
 from __future__ import annotations
@@ -91,6 +92,35 @@ class PromptSettings(BaseModel):
     strict: bool = True
 
 
+class AuthSettings(BaseModel):
+    """Authentication and RBAC configuration (BRD FR-8, AC-8.1).
+
+    ``secret_key`` is the one field in this file with no usable default, and that
+    is deliberate. A default signing secret would be a committed credential that
+    every deployment which forgot to override it would silently share, so the
+    composition root generates a throwaway per-process secret in development and
+    *refuses to boot* in production when none is configured (constraint C6).
+
+    ``demo_password`` likewise has no default: the demo accounts are seeded only
+    when a password is supplied by the environment, so no usable credential is
+    ever committed to source.
+    """
+
+    secret_key: SecretStr | None = None
+    algorithm: str = "HS256"
+    # Issuer/audience are checked on every token, so a token minted for another
+    # service -- or by one -- is rejected here.
+    issuer: str = "domain-copilot"
+    audience: str = "domain-copilot-api"
+    # One hour. Ticket #5 issues no refresh token, so a shorter lifetime would
+    # mean re-authenticating mid-session; revocation-by-demotion does not wait
+    # for expiry, because every request reloads the user's stored role.
+    access_token_ttl_seconds: int = 3600
+    bcrypt_rounds: int = 12
+    seed_demo_accounts: bool = True
+    demo_password: SecretStr | None = None
+
+
 class Settings(BaseSettings):
     """Process configuration. Nested groups are populated with the ``__`` delimiter."""
 
@@ -113,6 +143,14 @@ class Settings(BaseSettings):
     limits: OrchestrationLimits = Field(default_factory=OrchestrationLimits)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     prompts: PromptSettings = Field(default_factory=PromptSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
+
+    def is_production(self) -> bool:
+        """Return whether this process is configured as a production deployment.
+
+        Gates the fail-closed checks around signing secrets and demo accounts.
+        """
+        return self.environment.strip().lower() == "production"
 
 
 @lru_cache
