@@ -19,6 +19,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.errors import ProviderConfigurationError
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
@@ -35,6 +36,51 @@ from app.infrastructure.persistence.in_memory.document_repository import (
 from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
+
+# Supported chat providers, keyed by the lowercase name used in configuration
+# (settings.llm.provider / settings.llm.fallback). Adding a provider is a one-line
+# change here -- selection stays config-driven, never hard-coded at the call site.
+_SUPPORTED_LLM_PROVIDERS = ("groq", "ollama")
+
+
+def _build_llm_adapter(name: str, settings: Settings) -> ILLMProvider:
+    """Construct a single chat adapter by its configured name.
+
+    An unknown name is a configuration fault, not a client error, so it raises the
+    typed :class:`ProviderConfigurationError` (a non-transient server fault) rather
+    than falling through -- the app fails to boot instead of silently selecting the
+    wrong provider.
+    """
+    key = name.strip().lower()
+    if key == "groq":
+        api_key = settings.llm.api_key.get_secret_value() if settings.llm.api_key else ""
+        return GroqAdapter(api_key=api_key, default_model=settings.llm.model)
+    if key == "ollama":
+        return OllamaAdapter(
+            base_url="http://localhost:11434",
+            default_model=settings.llm.model,
+        )
+    raise ProviderConfigurationError(
+        f"Unknown LLM provider {name!r}; supported providers are: "
+        f"{', '.join(_SUPPORTED_LLM_PROVIDERS)}."
+    )
+
+
+def build_llm_provider(settings: Settings) -> ILLMProvider:
+    """Build the chat provider from configuration (BRD AR-2, ADR-007).
+
+    ``settings.llm.provider`` selects the primary adapter and ``settings.llm.fallback``
+    the transient-failure fallback. When a distinct fallback is configured the two are
+    composed in a :class:`FallbackLLMProvider` (primary first, fallback on transient
+    error only); a blank/None fallback -- or one equal to the primary -- yields the
+    bare primary adapter. Both names are validated, so invalid config fails safely.
+    """
+    primary = _build_llm_adapter(settings.llm.provider, settings)
+    fallback_name = (settings.llm.fallback or "").strip().lower()
+    if not fallback_name or fallback_name == settings.llm.provider.strip().lower():
+        return primary
+    secondary = _build_llm_adapter(fallback_name, settings)
+    return FallbackLLMProvider(primary=primary, secondary=secondary)
 
 
 class Container:
@@ -55,20 +101,9 @@ class Container:
             settings.prompts.directory, strict=settings.prompts.strict
         )
 
-        api_key = settings.llm.api_key.get_secret_value() if settings.llm.api_key else ""
-        primary_llm = GroqAdapter(
-            api_key=api_key,
-            default_model=settings.llm.model,
-        )
-        # Using a default local ollama url for secondary
-        secondary_llm = OllamaAdapter(
-            base_url="http://localhost:11434",
-            default_model=settings.llm.model,
-        )
-        self._llm_provider: ILLMProvider = FallbackLLMProvider(
-            primary=primary_llm,
-            secondary=secondary_llm,
-        )
+        # Chat provider (primary + optional transient-failure fallback) is chosen
+        # from configuration here -- the single composition root -- never hard-coded.
+        self._llm_provider: ILLMProvider = build_llm_provider(settings)
 
         self._embedding_provider: IEmbeddingProvider = LocalEmbeddingAdapter(
             model_name=settings.embedding.model

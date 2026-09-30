@@ -21,6 +21,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for prefix in ("LLM__", "EMBEDDING__", "QUEUE__", "RETRIEVAL__", "LIMITS__", "RETRY__"):
         for suffix in (
             "PROVIDER",
+            "FALLBACK",
             "MODEL",
             "API_KEY",
             "MAX_RETRIES",
@@ -35,6 +36,8 @@ def test_defaults_are_populated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     settings = Settings()
 
     assert settings.app_name == "Domain Copilot"
+    assert settings.llm.provider == "groq"
+    assert settings.llm.fallback == "ollama"
     assert settings.llm.temperature == 0.0
     assert settings.limits.max_iterations == 10
     assert settings.limits.per_step_timeout_seconds == 60
