@@ -13,6 +13,10 @@ Responses are split by *fault*:
 * **Server faults** (misconfiguration, unexpected exceptions) carry a fixed,
   generic message and a stable code; the real cause is logged server-side and
   **never** returned, so internal details never leak (SDD A.5.1).
+* **Authentication and authorization faults** are client faults, but they also
+  carry fixed messages. Which of "no such account", "wrong password", or
+  "expired token" occurred is useful to an attacker and to nobody else, so the
+  401 responses are indistinguishable from one another (BRD AC-8.3).
 
 Starlette resolves handlers along an exception's MRO, so a more-derived handler
 (e.g. ``ConfigurationError``) wins over its base (``ApplicationError``), and the
@@ -28,8 +32,11 @@ from fastapi.responses import JSONResponse
 
 from app.application.errors import (
     ApplicationError,
+    AuthenticationError,
+    AuthorizationError,
     ConfigurationError,
     ResourceNotFoundError,
+    ResourceOwnershipError,
 )
 from app.domain.shared.errors import (
     DomainError,
@@ -41,6 +48,13 @@ logger = logging.getLogger("app.presentation.errors")
 
 _CONFIG_ERROR_MESSAGE = "Application configuration error"
 _INTERNAL_ERROR_MESSAGE = "Internal server error"
+_UNAUTHENTICATED_MESSAGE = "Not authenticated"
+_FORBIDDEN_MESSAGE = "Insufficient permissions"
+_RESOURCE_FORBIDDEN_MESSAGE = "Access to this resource is forbidden"
+
+#: RFC 9110 requires a challenge on every 401. Naming only the ``Bearer`` scheme
+#: keeps clients from attempting Basic auth against this API.
+_WWW_AUTHENTICATE = {"WWW-Authenticate": "Bearer"}
 
 
 def _body(detail: str, code: str) -> dict[str, str]:
@@ -61,6 +75,31 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ResourceNotFoundError)
     async def _handle_not_found(_: Request, exc: ResourceNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content=_body(str(exc), "RESOURCE_NOT_FOUND"))
+
+    @app.exception_handler(AuthenticationError)
+    async def _handle_unauthenticated(_: Request, exc: AuthenticationError) -> JSONResponse:
+        # The error type is recorded server-side; the client learns only that it
+        # is not authenticated. Auth errors are constructed with fixed messages
+        # that never embed a token, a hash, or a library's exception text, so
+        # this log line cannot leak a credential either.
+        logger.info("authentication failed: %s: %s", type(exc).__name__, exc)
+        return JSONResponse(
+            status_code=401,
+            content=_body(_UNAUTHENTICATED_MESSAGE, "NOT_AUTHENTICATED"),
+            headers=_WWW_AUTHENTICATE,
+        )
+
+    @app.exception_handler(ResourceOwnershipError)
+    async def _handle_ownership(_: Request, exc: ResourceOwnershipError) -> JSONResponse:
+        logger.info("ownership check denied access: %s", exc)
+        return JSONResponse(
+            status_code=403, content=_body(_RESOURCE_FORBIDDEN_MESSAGE, "RESOURCE_FORBIDDEN")
+        )
+
+    @app.exception_handler(AuthorizationError)
+    async def _handle_forbidden(_: Request, exc: AuthorizationError) -> JSONResponse:
+        logger.info("authorization denied: %s", exc)
+        return JSONResponse(status_code=403, content=_body(_FORBIDDEN_MESSAGE, "PERMISSION_DENIED"))
 
     @app.exception_handler(ConfigurationError)
     async def _handle_configuration(_: Request, exc: ConfigurationError) -> JSONResponse:
