@@ -47,3 +47,31 @@ class PromptNotFoundError(ConfigurationError):
 
 class PromptValidationError(ConfigurationError):
     """A prompt artifact is malformed or fails schema validation on load."""
+
+
+class ProviderError(ApplicationError):
+    """Base error for all LLM/Embedding provider failures."""
+
+
+class ProviderUnavailableError(ProviderError):
+    """Provider is down or unreachable. (Transient)"""
+
+
+class ProviderRateLimitError(ProviderError):
+    """Provider rate limit exceeded. (Transient)"""
+
+
+class ContextWindowExceededError(ProviderError):
+    """Payload exceeds provider maximum context window. (Non-transient)"""
+
+
+class ProviderAuthenticationError(ProviderError):
+    """Authentication failed for the provider. (Non-transient)"""
+
+
+class ProviderInvalidRequestError(ProviderError):
+    """Provider rejected the request as malformed. (Non-transient)"""
+
+
+class ProviderConfigurationError(ProviderError):
+    """Provider setup/configuration is invalid. (Non-transient)"""

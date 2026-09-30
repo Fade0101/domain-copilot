@@ -1,25 +1,27 @@
 """Port: text embedding provider (BRD AR-2b).
 
-STUB -- final contract in the provider-abstraction ticket (#7). SDK-free so the
-application never imports ``sentence_transformers`` or a hosted embedding client.
+Defines the provider-neutral DTOs and IEmbeddingProvider interface.
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 
+@dataclass
+class EmbeddingResult:
+    """Result of embedding text."""
+
+    vectors: list[list[float]]
+    model_name: str
+    dimensions: int
+
+
+@runtime_checkable
 class IEmbeddingProvider(Protocol):
-    @property
-    def model_name(self) -> str:
-        """Identifier of the embedding model (persisted alongside each embedding)."""
-        ...
+    """Abstract interface for text embedding providers."""
 
-    @property
-    def dimensions(self) -> int:
-        """Dimensionality of the vectors this provider produces."""
-        ...
-
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts, preserving input order."""
+    async def generate_embeddings(self, texts: list[str]) -> EmbeddingResult:
+        """Generate embeddings for a batch of texts, returning vectors and metadata."""
         ...

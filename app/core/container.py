@@ -19,10 +19,16 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.ports.embeddings import IEmbeddingProvider
+from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.repositories import IDocumentRepository
 from app.application.ports.system import IClock, IIdGenerator
 from app.core.config import Settings, get_settings
+from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
+from app.infrastructure.llm.fallback import FallbackLLMProvider
+from app.infrastructure.llm.groq_adapter import GroqAdapter
+from app.infrastructure.llm.ollama_adapter import OllamaAdapter
 from app.infrastructure.persistence.in_memory.document_repository import (
     InMemoryDocumentRepository,
 )
@@ -48,6 +54,33 @@ class Container:
         self._prompt_provider: IPromptProvider = YamlPromptProvider(
             settings.prompts.directory, strict=settings.prompts.strict
         )
+
+        api_key = settings.llm.api_key.get_secret_value() if settings.llm.api_key else ""
+        primary_llm = GroqAdapter(
+            api_key=api_key,
+            default_model=settings.llm.model,
+        )
+        # Using a default local ollama url for secondary
+        secondary_llm = OllamaAdapter(
+            base_url="http://localhost:11434",
+            default_model=settings.llm.model,
+        )
+        self._llm_provider: ILLMProvider = FallbackLLMProvider(
+            primary=primary_llm,
+            secondary=secondary_llm,
+        )
+
+        self._embedding_provider: IEmbeddingProvider = LocalEmbeddingAdapter(
+            model_name=settings.embedding.model
+        )
+
+    @property
+    def llm_provider(self) -> ILLMProvider:
+        return self._llm_provider
+
+    @property
+    def embedding_provider(self) -> IEmbeddingProvider:
+        return self._embedding_provider
 
     @property
     def document_repository(self) -> IDocumentRepository:
