@@ -56,7 +56,7 @@ Each entry records:
 | **AI mistake — Error detail leakage** | The AI's first implementation of exception handlers returned `str(exc)` for **all** exceptions including `ConfigurationError`. This would have leaked internal file paths, prompt names, and configuration details to API callers. For example, a `PromptValidationError("prompt grounded_answer.v1.yaml missing keys: ['template']")` would have been returned verbatim as HTTP 500 response body. |
 | **How caught** | The security reviewer sub-agent was invoked to review the error handling code. It flagged the 500 responses as violating SDD §A.5.1 ("never expose internal details"). |
 | **Fix** | Server fault handlers (`ConfigurationError`, catch-all `Exception`) now return static messages (`"Application configuration error"`, `"Internal server error"`) and log the real cause server-side. Client fault handlers (422, 409, 404, 400) continue to return contextual messages since those are safe and useful. |
-| **Verification** | Integration tests in `tests/integration/test_error_handling.py` verify that: (1) client faults return the error's own message, (2) server faults return a generic message, and (3) the response body includes a stable `code` field. All 50 tests pass. |
+| **Verification** | Integration tests in `tests/integration/test_error_handling.py` verify that: (1) client faults return the error's own message, (2) server faults return a generic message, and (3) the response body includes a stable `code` field. The full test suite passes. |
 
 ---
 
@@ -84,7 +84,7 @@ Each entry records:
 | **Human role** | Noticed a missing edge case: in Python, `bool` is a subclass of `int`, so `isinstance(True, int)` returns `True`. A YAML file with `version: true` would pass the integer check and be treated as version 1. |
 | **AI mistake** | The AI's initial version validation was `isinstance(version, int)`, which accepts booleans. The test suite did not include a test for boolean versions. |
 | **Fix** | Added `or isinstance(version, bool)` guard in `YamlPromptProvider._parse()` and a corresponding test case `test_rejects_boolean_version`. |
-| **Verification** | The test `test_rejects_boolean_version` confirms that `version: true` raises `PromptValidationError`. All 50 tests pass including this edge case. |
+| **Verification** | The test `test_rejects_boolean_version` confirms that `version: true` raises `PromptValidationError`. The full test suite passes, including this edge case. |
 
 ---
 

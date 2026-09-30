@@ -11,7 +11,7 @@ architecture decisions, acceptance, and merges.
 
 ## 1. Overview
 
-The development workflow is built around six categories of agentic
+The development workflow is built around seven categories of agentic
 configuration, each described in detail below:
 
 | # | Category | Location | Purpose |
@@ -22,7 +22,7 @@ configuration, each described in detail below:
 | 4 | Hooks enforcing quality gates | `scripts/pre-commit-check.py`, `scripts/install-hooks.py` | Automated checks before every commit |
 | 5 | Custom commands | `scripts/validate-prompts.py`, `scripts/check-boundaries.py` | Repeatable operations for common tasks |
 | 6 | Versioned prompt library | `prompts/*.yaml` | Product prompts as versioned, schema-validated artifacts |
-| 7 | Spec-Driven Development (SpecPilot) | `.tasks/`, `.context/` | SpecPilot orchestrates planning, implementation, and MCP usage |
+| 7 | Spec-Driven Development + MCP (SpecPilot) | `.tasks/`, spec-pilot Claude Code plugin | SpecPilot orchestrates planning/implementation; MCP servers ship with the installed plugin |
 
 ---
 
@@ -294,46 +294,68 @@ template: |                # The actual prompt text with {variable} placeholders
 
 ## 7. Spec-Driven Development & MCP (SpecPilot)
 
-**Location:** `.tasks/`, `.context/`, `.mcp.json`
+**Committed artifact:** [`.tasks/`](../.tasks/) &nbsp;·&nbsp;
+**Tooling (developer environment, not committed):** the `spec-pilot` Claude
+Code plugin and its bundled MCP servers.
 
 To supplement the native sub-agents and ensure a rigorous planning phase before
-any code is written, this repository also utilizes **SpecPilot**, a spec-driven
-development plugin for Claude Code / GitHub Copilot CLI.
+any code is written, this repository is developed with **SpecPilot**, a
+spec-driven development plugin for Claude Code. SpecPilot is installed in the
+developer's Claude Code environment (as a plugin); it is **not** vendored into
+this repository. What lands in version control is the *output* of the workflow
+(specifications and plans under `.tasks/`), not the plugin or its configuration.
 
 ### Workflow Integration
 
-Instead of prompting the AI to "just build it," we use SpecPilot's four-command
-loop to ensure work is specified, planned, and reviewed:
+Instead of prompting the AI to "just build it," we use SpecPilot's command loop
+to ensure work is specified, planned, and reviewed:
 
 1. `/specify` — Defines requirements and acceptance criteria for a ticket. If
    the brief is vague, the agent surfaces hidden assumptions before writing the
    spec into `.tasks/<feature>/specifications.md`.
 2. `/plan` — Turns the spec into a concrete, step-by-step implementation roadmap
-   (`plan.md`). No code is written at this stage.
+   (`.tasks/<feature>/plan.md`). No code is written at this stage.
 3. `/implement` — The agent executes the plan file by file, respecting the
    project's architecture rules.
-4. `/code-review` — The Auditor sub-agent audits the diff for correctness, edge
+4. `/code-review` — An auditor sub-agent reviews the diff for correctness, edge
    cases, and security.
 
 ### Artifacts and Audit Trail
 
-Everything SpecPilot writes lands in two version-controlled folders:
-- `.tasks/<feature>/` — Holds the specifications, plans, and implementation notes
-  for each ticket.
-- `.context/<topic>/` — Holds analysis reports (from `/analyse`) and saved
-  conversation summaries (from `/save`).
+The spec-driven artifacts SpecPilot writes are version-controlled under a single
+folder:
+
+- `.tasks/<feature>/` — Holds the `specifications.md` and `plan.md` for each
+  ticket. Committed examples: [`.tasks/ticket-6/`](../.tasks/ticket-6/) and
+  [`.tasks/ticket-7/`](../.tasks/ticket-7/).
 
 These artifacts provide a paper trail that can be audited by the reviewer (or
-the instructor/grader), proving that the AI operated from a shared intent rather
-than guesswork.
+the instructor/grader), proving that the AI operated from a shared, written
+intent rather than guesswork.
+
+> **Accuracy note.** Earlier drafts of this section referenced a committed
+> `.context/` directory and a repo-level `.mcp.json`. Neither exists in this
+> repository, so those claims were removed: MCP is supplied by the installed
+> plugin (below), and analysis/summary artifacts are not committed. Only
+> `.tasks/` is a real, tracked artifact.
 
 ### MCP Servers
 
-SpecPilot also brings pre-configured **Model Context Protocol (MCP)** servers
-via `.mcp.json`, fulfilling the assessment's MCP requirement:
-- `sequential-thinking` for iterative reasoning on complex architectural decisions.
-- `context-mode` for sandboxed analysis of large data sets.
-- `context7` for up-to-date library documentation.
+SpecPilot brings pre-configured **Model Context Protocol (MCP)** servers as part
+of the installed Claude Code plugin — they are registered in the developer's
+Claude Code environment by the plugin, **not** via a `.mcp.json` committed to
+this repo. The servers available through the plugin during development:
+
+- `sequential-thinking` — iterative reasoning on complex architectural decisions.
+- `context-mode` — sandboxed analysis of large inputs without flooding context.
+- `context7` — up-to-date, version-specific library documentation.
+
+Because these are environment tooling rather than repository artifacts, cloning
+this repo does not install them; a contributor reproduces the setup by
+installing the `spec-pilot` plugin in their own Claude Code environment (see
+[§10](#10-reproducing-this-workflow)). The MCP requirement is satisfied by this
+plugin-provided tooling, and its influence is visible in the committed `.tasks/`
+specs and plans.
 
 ---
 
@@ -390,7 +412,7 @@ The human is responsible for:
 
 ---
 
-## 8. Where the Agentic Approach Failed
+## 9. Where the Agentic Approach Failed
 
 Honest accounting of where AI assistance was misleading or counterproductive:
 
@@ -421,7 +443,7 @@ These failures are documented in detail in [`AI-USAGE-LOG.md`](./AI-USAGE-LOG.md
 
 ---
 
-## 9. Reproducing This Workflow
+## 10. Reproducing This Workflow
 
 A contributor can reproduce the documented workflow:
 
@@ -451,9 +473,19 @@ git push origin feat/my-feature
 # CI runs the same checks as the pre-commit hook
 ```
 
+**Optional — SpecPilot / MCP layer (§7).** The steps above reproduce the code,
+tests, hooks, and architecture gates with no plugin required — everything that
+lands in version control is self-contained. The spec-driven planning loop and
+its MCP servers are developer-environment tooling, so they are reproduced
+separately: install the `spec-pilot` plugin in your own Claude Code environment
+(which registers the bundled `sequential-thinking`, `context-mode`, and
+`context7` MCP servers). No repo-level `.mcp.json` or `.context/` is needed or
+present; the committed evidence of that layer is the [`.tasks/`](../.tasks/)
+specs and plans.
+
 ---
 
-## 10. File Inventory
+## 11. File Inventory
 
 ```
 .agents/
@@ -477,4 +509,12 @@ scripts/
 prompts/
   grounded_answer.v1.yaml  # Product prompt artifact (Category 6)
   safety_check.v1.yaml     # Product prompt artifact (Category 6)
+
+.tasks/                    # SpecPilot spec-driven artifacts (Category 7)
+  ticket-6/
+    specifications.md      # Spec written by /specify
+    plan.md                # Roadmap written by /plan
+  ticket-7/
+    specifications.md
+    plan.md
 ```
