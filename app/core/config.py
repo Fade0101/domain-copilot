@@ -27,9 +27,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LLMSettings(BaseModel):
-    """Chat/completion provider configuration (adapter finalized in #7)."""
+    """Chat/completion provider selection and fallback (adapters finalized in #7)."""
 
     provider: str = "groq"
+    # Capability-specific transient-failure fallback for chat (AR-2c): the
+    # composition root wraps ``provider`` with this one in a FallbackLLMProvider.
+    # Blank/None disables fallback (primary only); a value equal to ``provider``
+    # is ignored. Selection stays config-driven -- no adapter is hard-coded.
+    fallback: str | None = "ollama"
     model: str = "llama-3.1-8b-instant"
     temperature: float = 0.0
     max_tokens: int = 1024
