@@ -19,7 +19,12 @@ groq>=0.5.0
 # Security & Utilities
 pydantic>=2.7.0
 pydantic-settings>=2.2.1
-passlib[bcrypt]>=1.7.4
+# Auth (FR-8). bcrypt is used directly rather than through passlib: passlib
+# 1.7.4's bcrypt backend probe calls hashpw() with a 73-byte input, which bcrypt
+# 5.x raises on instead of truncating, so constructing a CryptContext for bcrypt
+# fails outright. passlib's last release was 2020 and this is unfixed upstream.
+bcrypt>=4.1.0
+pyjwt>=2.8.0
 pyyaml>=6.0
 
 # Development & Testing

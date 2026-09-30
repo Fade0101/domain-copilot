@@ -33,6 +33,11 @@ _FORBIDDEN_THIRD_PARTY = {
     "httpx",
     "pydantic",
     "pydantic_settings",
+    # Auth implementation libraries: reachable only through IPasswordHasher and
+    # ITokenService. `passlib` is listed although it is no longer a dependency,
+    # so reintroducing it in an inner layer still fails.
+    "bcrypt",
+    "jwt",
     "passlib",
     "yaml",
 }
