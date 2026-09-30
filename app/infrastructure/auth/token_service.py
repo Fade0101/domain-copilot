@@ -68,9 +68,14 @@ _REQUIRED_CLAIMS: Final = ["sub", "exp", "iat", "iss", "aud", CLAIM_ROLE, CLAIM_
 #: which is not in this ticket's scope.
 _SUPPORTED_ALGORITHMS: Final = frozenset({"HS256", "HS384", "HS512"})
 
-#: A shorter secret than this does not provide the security margin HMAC-SHA256
-#: assumes, so a misconfiguration is refused at startup rather than at runtime.
-MIN_SECRET_LENGTH: Final = 32
+#: Minimum signing-key length in bytes, per algorithm. RFC 7518 §3.2 requires a
+#: key at least as long as the hash output, so a shorter key gives away security
+#: margin the construction assumes. A misconfiguration is refused at startup
+#: rather than producing weakly signed tokens at runtime.
+_MIN_SECRET_BYTES: Final = {"HS256": 32, "HS384": 48, "HS512": 64}
+
+#: The floor for the default algorithm (HS256), for callers that need a number.
+MIN_SECRET_LENGTH: Final = _MIN_SECRET_BYTES["HS256"]
 
 #: Tolerance for an ``iat`` that sits slightly ahead of the verifier's clock.
 #: Issuer and verifier are the same process today, so this only matters if they
@@ -93,9 +98,10 @@ class JwtTokenService(ITokenService):
     ) -> None:
         if algorithm not in _SUPPORTED_ALGORITHMS:
             raise ConfigurationError(f"unsupported JWT algorithm: {algorithm!r}")
-        if len(secret) < MIN_SECRET_LENGTH:
+        required_bytes = _MIN_SECRET_BYTES[algorithm]
+        if len(secret.encode("utf-8")) < required_bytes:
             raise ConfigurationError(
-                f"JWT signing secret must be at least {MIN_SECRET_LENGTH} characters"
+                f"JWT signing secret must be at least {required_bytes} bytes for {algorithm}"
             )
         if ttl_seconds <= 0:
             raise ConfigurationError("JWT token lifetime must be positive")
