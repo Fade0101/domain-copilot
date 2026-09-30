@@ -10,6 +10,8 @@ and what lets the integration test resolve the real adapter through DI.
 from __future__ import annotations
 
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.ports.embeddings import IEmbeddingProvider
+from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
 from app.core.container import Container, get_container
 
@@ -27,3 +29,13 @@ def get_register_document_use_case() -> RegisterDocumentUseCase:
 def get_prompt_provider() -> IPromptProvider:
     """Provide the versioned prompt provider built by the container (AR-4)."""
     return get_container().prompt_provider
+
+
+def get_llm_provider() -> ILLMProvider:
+    """Provide the canonical LLM provider built by the container (AR-2a)."""
+    return get_container().llm_provider
+
+
+def get_embedding_provider() -> IEmbeddingProvider:
+    """Provide the embedding provider built by the container (AR-2b)."""
+    return get_container().embedding_provider
