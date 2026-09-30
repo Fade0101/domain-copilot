@@ -95,6 +95,25 @@ _OWNERSHIP_BYPASS: Mapping[ResourceType, Permission | None] = {
     ResourceType.DOCUMENT: Permission.INGEST_DOCUMENTS,  # admin only (SEC-1a)
 }
 
+# --- Baseline read access, per resource type --------------------------------
+#
+# The permission a role must hold to read an object it *does* own. Every role
+# currently holds all four (they are in the analyst base tier, which reviewer and
+# admin inherit), so this check passes for every principal today. It is enforced
+# anyway: it makes the authorization decision explicit and server-side rather
+# than implied, and it is the check that would start failing -- correctly -- if a
+# future ticket ever narrows a role's baseline grants.
+#
+# ``None`` means the resource type has no baseline view permission in the AC-8.2
+# matrix, so ownership alone governs.
+_RESOURCE_VIEW_PERMISSION: Mapping[ResourceType, Permission | None] = {
+    ResourceType.RUN: Permission.VIEW_OWN_RUNS,
+    ResourceType.JOB: Permission.VIEW_OWN_JOBS,
+    ResourceType.TRACE: Permission.VIEW_OWN_TRACES,
+    ResourceType.SESSION: Permission.VIEW_OWN_SESSIONS,
+    ResourceType.DOCUMENT: None,
+}
+
 
 def permissions_for(role: Role) -> frozenset[Permission]:
     """Return every permission granted to ``role``."""
@@ -120,3 +139,12 @@ def role_may_access_any(role: Role, resource_type: ResourceType) -> bool:
     if required is None:
         return False
     return role_has_permission(role, required)
+
+
+def view_permission(resource_type: ResourceType) -> Permission | None:
+    """Return the permission needed to read an owned ``resource_type`` object.
+
+    ``None`` means the matrix defines no baseline permission for that type and
+    ownership alone decides.
+    """
+    return _RESOURCE_VIEW_PERMISSION[resource_type]
