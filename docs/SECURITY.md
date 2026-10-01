@@ -22,7 +22,7 @@ Evidence, tests, and implementation references will be added as each control is 
   * `admin`
   * Matrix in `app/domain/auth/permissions.py`, enforced by `AuthorizationService`. Tests: `tests/unit/domain/test_permissions.py`, `tests/integration/test_rbac_api.py`.
 * [x] **Resource Ownership** — Analysts can access only resources they are authorized to access. Reviewer/admin access follows the role permissions defined by the BRD.
-  * `AuthorizationService.require_resource_access` consults persisted ownership through `IOwnershipQuery` for runs, jobs, traces and sessions. Tests: `tests/integration/test_ownership_api.py`, `tests/unit/application/test_authorization_service.py`.
+  * `AuthorizationService.require_resource_access` consults persisted ownership through `IOwnershipQuery` for runs, jobs, traces and sessions. `SqlOwnershipQuery` reads it from PostgreSQL — one indexed `SELECT user_id … WHERE id = :id`, table name from an enum-keyed map, id bound, non-UUID ids treated as a miss rather than a database error. Tests: `tests/integration/test_sql_ownership.py` (real PostgreSQL, including survival across a new connection pool), `tests/integration/test_ownership_api.py`, `tests/unit/application/test_authorization_service.py`.
 * [ ] **Approval Authorization** — Only authorized reviewers/admins can approve, reject, or edit-and-approve clinical notes.
   * Partially prepared: the `approve`/`reject`/`edit_clinical_note` permissions exist in the matrix and are asserted per role, but the approval endpoints and their workflow semantics belong to Ticket #19.
 * [x] **Server-Side Enforcement** — Authorization decisions are never based solely on UI visibility or client-provided role information.
