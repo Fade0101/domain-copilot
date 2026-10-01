@@ -143,6 +143,9 @@ def worker(jobs: Environment, directory: Path) -> Iterator[subprocess.Popen[byte
         "QUEUE__DEFAULT_QUEUE": jobs.queue,
         "QUEUE__PUBLISH_TIMEOUT_SECONDS": "0.5",
     }
+    creation_flags = 0
+    if sys.platform == "win32":
+        creation_flags = subprocess.CREATE_NO_WINDOW
     with log_path.open("wb") as log:
         process = subprocess.Popen(
             [
@@ -161,7 +164,7 @@ def worker(jobs: Environment, directory: Path) -> Iterator[subprocess.Popen[byte
             env=environment,
             stdout=log,
             stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            creationflags=creation_flags,
         )
         try:
             deadline = time.monotonic() + 30
