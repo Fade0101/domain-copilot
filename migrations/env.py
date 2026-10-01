@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import Settings
 from app.infrastructure.persistence.database import normalize_database_url
+from app.infrastructure.persistence.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -26,11 +27,12 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 #
-# Still None: there is no declarative metadata to point at yet, so
-# `alembic revision --autogenerate` cannot diff the schema and revisions are
-# written by hand. Defining the ORM models belongs to ticket #6; once they exist,
-# set this to their Base.metadata.
-target_metadata = None
+# The ORM models in app/infrastructure/persistence/models.py mirror the schema the
+# migrations produce, so `alembic revision --autogenerate` can diff them against a
+# database. The migrations stay the source of truth: the models were derived from
+# the migrated schema, and tests/integration/test_orm_models.py fails if the two
+# ever drift by requiring autogenerate to find no changes.
+target_metadata = Base.metadata
 
 # The placeholder URL that ships in alembic.ini is not usable, and keeping a real
 # one in a committed file would be a committed credential (constraint C6). The
