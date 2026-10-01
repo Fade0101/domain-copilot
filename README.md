@@ -56,6 +56,22 @@ Run the API locally:
 uvicorn app.presentation.api.app:create_app --factory --reload
 ```
 
+## Database migrations
+
+Configure `DATABASE__URL` in your environment or `.env`, then run:
+
+```bash
+alembic upgrade head
+alembic check
+```
+
+Ticket #6's [ORM models](app/infrastructure/persistence/models.py) mirror the
+migrations and supply the job runner's table mapping. `alembic check` should
+report no pending operations after upgrading. Update the models alongside any
+new migration. Schema agreement and integration with Tickets #5/#20 are tested
+in `tests/integration/test_orm_models.py`; set `TEST_DATABASE_URL` to an admin
+connection on a disposable PostgreSQL service to run its database tests.
+
 ## Async jobs
 
 Ticket #20 supplies a real Celery/Redis worker with PostgreSQL-owned job state,

@@ -15,7 +15,6 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine, RowMapping, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -23,31 +22,12 @@ from app.application.errors import ConfigurationError, JobNotFoundError, JobStor
 from app.application.ports.jobs import IJobStore
 from app.domain.jobs.entities import Job, JobState
 from app.domain.shared.errors import InvalidStateTransitionError
+from app.infrastructure.persistence.models import Base
 
 _T = TypeVar("_T")
-_metadata = sa.MetaData()
-_jobs = sa.Table(
-    "jobs",
-    _metadata,
-    sa.Column("id", sa.Uuid(), primary_key=True),
-    sa.Column("user_id", sa.Uuid(), nullable=False),
-    sa.Column("operation_type", sa.String(100)),
-    sa.Column("state", sa.String(20), nullable=False),
-    sa.Column("idempotency_key", sa.String(255), nullable=False),
-    sa.Column("input_payload", JSONB(), nullable=False),
-    sa.Column("result_payload", JSONB()),
-    sa.Column("checkpoint_data", JSONB(), nullable=False),
-    sa.Column("correlation_id", sa.Uuid()),
-    sa.Column("attempt_number", sa.Integer(), nullable=False),
-    sa.Column("max_attempts", sa.Integer(), nullable=False),
-    sa.Column("last_error", sa.Text()),
-    sa.Column("next_retry_at", sa.DateTime(timezone=True)),
-    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.Column("started_at", sa.DateTime(timezone=True)),
-    sa.Column("completed_at", sa.DateTime(timezone=True)),
-    sa.Column("cancellation_requested", sa.Boolean(), nullable=False),
-)
+# Share the mapping used by Alembic and ORM readers; a second table declaration
+# can drift from the schema while passing isolated runner tests.
+_jobs = Base.metadata.tables["jobs"]
 
 
 def create_job_engine(database_url: str) -> Engine:

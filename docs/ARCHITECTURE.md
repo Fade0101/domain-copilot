@@ -239,6 +239,22 @@ The implementation does not require independent databases for every logical comp
 
 For Part B, the system uses a single PostgreSQL deployment with logically separated tables/schema ownership.
 
+Ticket #6's declarative mappings live in
+[`app/infrastructure/persistence/models.py`](../app/infrastructure/persistence/models.py).
+They mirror all eleven tables created by migrations through `c83d20a19f04`,
+including Ticket #5 ownership/session fields and Ticket #20 job execution fields.
+`Base.metadata` is shared by Alembic autogeneration and `PostgresJobStore`, so
+the runner has no separate table declaration that can drift from the ORM.
+Ticket #5's user and ownership adapters retain their bound SQL against the same
+schema; ORM objects do not cross application or domain boundaries.
+
+Migrations remain the schema authority. After `alembic upgrade head`,
+`alembic check` must report no pending operations. Changes to mapped columns,
+defaults, constraints or indexes must accompany a migration. The real PostgreSQL
+tests in `tests/integration/test_orm_models.py` compare the schema and server
+defaults, exercise Alembic's configured metadata, and read runner-written jobs
+through the ORM and Ticket #5 ownership query.
+
 Redis is infrastructure for:
 
 * Celery brokering

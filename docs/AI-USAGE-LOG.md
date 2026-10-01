@@ -102,11 +102,25 @@ Each entry records:
 
 ---
 
+### Entry 7 — Shared Persistence Integration (Tickets #5, #6, #20)
+
+| Field | Detail |
+| --- | --- |
+| **Ticket** | #6 ORM update integrated with #5 authentication/ownership and #20 durable jobs. |
+| **Task** | Reconcile the local ORM update with the latest `dev` and wire the job store to the shared mappings. |
+| **AI role** | Integrated the changes in an isolated worktree, updated models and tests, and reviewed the persistence boundary using the project skill guidance. No sub-agents were spawned. |
+| **Human role** | Supplied the ORM update and requested integration, verification, push and merge into `dev`. |
+| **Integration issue** | The ORM update described the schema before Ticket #20. Its job fields, dispatch index and lifecycle constraint needed to match the newer migration before autogeneration could be used safely. |
+| **Resolution** | Extended `JobModel` to the current migration and replaced the runner's duplicate table declaration with `Base.metadata`. Added checks for Alembic configuration, server defaults, ORM reads of completed jobs, ownership lookup and legacy jobs excluded from dispatch. Test databases have unique names; missing PostgreSQL fails in CI. |
+| **Local verification** | 730 passed, one intentional permission-matrix skip, using real PostgreSQL/Redis and separate workers. Ruff lint/format, mypy for Linux and Windows (148 source files), and all three import-linter contracts passed. |
+
+---
+
 ## Summary Statistics
 
 | Metric | Value |
 |--------|-------|
-| Tickets covered | #1, #2, #3, #4, #20 |
+| Tickets covered | #1, #2, #3, #4, #5, #6, #20 |
 | AI mistakes caught | 5 (architecture violation, error leakage, false status claim, boolean edge case, checkpoint JSON type drift) |
 | Mistakes caught by sub-agents | 1 (security reviewer → error leakage) |
 | Mistakes caught by human review | 3 (architecture violation, false claim, boolean edge case) |
