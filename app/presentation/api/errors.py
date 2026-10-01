@@ -35,6 +35,7 @@ from app.application.errors import (
     AuthenticationError,
     AuthorizationError,
     ConfigurationError,
+    JobStoreError,
     ResourceNotFoundError,
     ResourceOwnershipError,
 )
@@ -112,6 +113,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _handle_domain(_: Request, exc: DomainError) -> JSONResponse:
         return JSONResponse(status_code=400, content=_body(str(exc), "DOMAIN_ERROR"))
+
+    @app.exception_handler(JobStoreError)
+    async def _handle_job_storage(_: Request, exc: JobStoreError) -> JSONResponse:
+        logger.error("durable job storage unavailable: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content=_body("Job storage is unavailable", "JOB_STORE_UNAVAILABLE"),
+        )
 
     @app.exception_handler(ApplicationError)
     async def _handle_application(_: Request, exc: ApplicationError) -> JSONResponse:

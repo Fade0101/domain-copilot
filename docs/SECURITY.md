@@ -109,13 +109,22 @@ Because Domain Copilot operates on healthcare guidance, safety controls apply sp
 
 T7 introduces long-running jobs that must remain protected across requests and worker executions.
 
-* [ ] **Job Ownership** — Users cannot access or manipulate jobs belonging to unauthorized users.
+* [x] **Job Ownership** — Users cannot access or manipulate jobs belonging to unauthorized users.
+  * Ticket #20's submission derives ownership from the resolved principal and requires
+    `MANAGE_ALL_JOBS`. Polling reuses `AuthorizationService` and PostgreSQL ownership.
+    Real JWT/HTTP/database tests in `tests/integration/test_jobs_api.py` cover denial,
+    owner/admin reads and forged ownership. Cancel/retry authorization remains below.
 * [ ] **Cancel Authorization** — Only authorized users can cancel a job they are permitted to control.
 * [ ] **Retry Authorization** — Retry operations require appropriate ownership/role authorization.
 * [ ] **Approval Authorization** — Approval commands verify both reviewer permissions and the target workflow/job.
 * [ ] **Idempotency** — Repeated requests using the same idempotency key cannot create unintended duplicate operations.
 * [ ] **Cancellation Integrity** — Client SSE disconnection does not cancel or alter the underlying job.
 * [ ] **Durable State** — Security-relevant job and workflow state is persisted in PostgreSQL rather than relying solely on Redis.
+  * Job state, owner, correlation ID, input, checkpoints and results are persisted
+    in PostgreSQL (#20); workflow/approval integration remains separate. Redis
+    messages contain only UUIDs and the Celery result backend is disabled.
+    Handler failures persist a fixed safe code; storage errors return a fixed 503.
+    Submission/checkpoint data have configurable size limits and JSON validation.
 
 ---
 

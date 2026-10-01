@@ -3,11 +3,11 @@ services:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       POSTGRES_DB: ${POSTGRES_DB:-domain_copilot}
     ports:
       # Exposed for local development only
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     ports:
       # Exposed for local development only
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     # Note: Redis is used as an ephemeral broker/cache. It is NOT authoritative for durable state.
     # The volume is provided for local convenience.
     volumes:
@@ -30,6 +30,57 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  migrate:
+    profiles: ["jobs"]
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE__URL: ${DATABASE__URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    profiles: ["jobs"]
+    build: .
+    environment: &job_environment
+      DATABASE__URL: ${DATABASE__URL:-}
+      QUEUE__BROKER_URL: redis://redis:6379/0
+      QUEUE__DEFAULT_QUEUE: ${QUEUE__DEFAULT_QUEUE:-default}
+      QUEUE__VISIBILITY_TIMEOUT_SECONDS: ${QUEUE__VISIBILITY_TIMEOUT_SECONDS:-3600}
+      QUEUE__PUBLISH_TIMEOUT_SECONDS: ${QUEUE__PUBLISH_TIMEOUT_SECONDS:-2}
+      QUEUE__MAX_PAYLOAD_BYTES: ${QUEUE__MAX_PAYLOAD_BYTES:-65536}
+      QUEUE__MAX_CHECKPOINT_BYTES: ${QUEUE__MAX_CHECKPOINT_BYTES:-1048576}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+  api:
+    profiles: ["jobs"]
+    build: .
+    command:
+      - uvicorn
+      - app.presentation.api.app:create_app
+      - --factory
+      - --host=0.0.0.0
+      - --port=8000
+    environment:
+      <<: *job_environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      AUTH__SECRET_KEY: ${AUTH__SECRET_KEY:-}
+      AUTH__DEMO_PASSWORD: ${AUTH__DEMO_PASSWORD:-}
+      AUTH__SEED_DEMO_ACCOUNTS: ${AUTH__SEED_DEMO_ACCOUNTS:-true}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:

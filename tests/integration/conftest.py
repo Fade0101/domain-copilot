@@ -14,17 +14,28 @@ container.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.application.jobs.diagnostic import DiagnosticJobHandler
+from app.application.jobs.registry import JobHandlerRegistry
+from app.application.jobs.service import JobService
 from app.core.config import get_settings
 from app.core.container import get_container
 from app.domain.auth.value_objects import EmailAddress, ResourceType, Role, UserId
+from app.domain.jobs.entities import Job
 from app.infrastructure.persistence.in_memory.ownership_query import (
     InMemoryOwnershipQuery,
 )
 from app.presentation.api.app import create_app
+from app.presentation.api.dependencies import get_job_service
+from tests.support.fakes import FixedClock, SequentialIdGenerator
+from tests.support.job_fakes import FakeJobQueue, FakeJobStore
+
+_ownership_jobs = FakeJobStore()
 
 #: Development-only credential for the seeded demo accounts. Supplied through the
 #: environment exactly as a developer would supply it, so the tests exercise the
@@ -57,9 +68,21 @@ def client() -> Iterator[TestClient]:
     get_settings.cache_clear()
     get_container.cache_clear()
     # Entering the context manager runs the lifespan hook, which seeds.
-    with TestClient(create_app()) as test_client:
+    app = create_app()
+    # These legacy RBAC tests exercise the real authorization service on memory
+    # adapters. Ticket 20's API/worker suite separately uses real PostgreSQL/Redis.
+    job_service = JobService(
+        _ownership_jobs,
+        FakeJobQueue(_ownership_jobs),
+        JobHandlerRegistry([DiagnosticJobHandler()]),
+        FixedClock(datetime.now(UTC)),
+        SequentialIdGenerator(),
+    )
+    app.dependency_overrides[get_job_service] = lambda: job_service
+    with TestClient(app) as test_client:
         yield test_client
 
+    _ownership_jobs.jobs.clear()
     monkeypatch.undo()
     get_settings.cache_clear()
     get_container.cache_clear()
@@ -114,6 +137,17 @@ def own(resource_type: ResourceType, resource_id: str, owner: UserId) -> None:
         "DATABASE__URL must not be set for this module"
     )
     query.register(resource_type, resource_id, owner)
+    if resource_type == ResourceType.JOB:
+        now = datetime.now(UTC)
+        identifier = UUID(resource_id)
+        _ownership_jobs.jobs[identifier] = Job(
+            id=identifier,
+            operation_type="diagnostic",
+            input_payload={},
+            user_id=UUID(owner.value),
+            created_at=now,
+            updated_at=now,
+        )
 
 
 async def find_user_id(email: str) -> UserId:

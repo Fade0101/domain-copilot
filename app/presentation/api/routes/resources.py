@@ -1,7 +1,8 @@
 """Object-ownership-protected resource routes (BRD AC-8.4, SEC-1a).
 
-The four endpoints Ticket #5 names: ``GET /runs/{run_id}``, ``/jobs/{job_id}``,
-``/traces/{trace_id}``, ``/sessions/{session_id}``. Each one answers the question
+The remaining access projections for ``GET /runs/{run_id}``,
+``/traces/{trace_id}``, ``/sessions/{session_id}``. Jobs have a full projection
+in ``routes/jobs.py`` using the same authorization service. Each answers the question
 "may *this* caller see *this* object?" by consulting persisted ownership.
 
 What makes these resistant to IDOR/BOLA is what they do *not* rely on:
@@ -74,20 +75,6 @@ async def read_run(
     authorization: AuthorizationService = Depends(get_authorization_service),
 ) -> ResourceAccessResponse:
     return await _authorized_access(ResourceType.RUN, run_id, principal, authorization)
-
-
-@router.get(
-    "/jobs/{job_id}",
-    response_model=ResourceAccessResponse,
-    summary="Read an async job the caller is allowed to see",
-    responses=_RESPONSES,
-)
-async def read_job(
-    job_id: str,
-    principal: Principal = Depends(get_current_principal),
-    authorization: AuthorizationService = Depends(get_authorization_service),
-) -> ResourceAccessResponse:
-    return await _authorized_access(ResourceType.JOB, job_id, principal, authorization)
 
 
 @router.get(

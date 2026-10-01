@@ -14,6 +14,7 @@ from app.application.auth.use_cases import (
     ResolvePrincipalUseCase,
 )
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.jobs.service import JobService
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
@@ -23,6 +24,11 @@ from app.core.container import Container, get_container
 def get_app_container() -> Container:
     """Provide the process-wide composition root."""
     return get_container()
+
+
+async def get_job_service() -> JobService:
+    """Resolve on the API event loop so lazy runtime construction is serialized."""
+    return get_container().job_service
 
 
 def get_register_document_use_case() -> RegisterDocumentUseCase:

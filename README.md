@@ -56,6 +56,23 @@ Run the API locally:
 uvicorn app.presentation.api.app:create_app --factory --reload
 ```
 
+## Async jobs
+
+Ticket #20 supplies a real Celery/Redis worker with PostgreSQL-owned job state,
+checkpoint resume, and authenticated HTTP 202 submission/polling. Copy
+`.env.example` to `.env`, choose a local `POSTGRES_PASSWORD`, configure
+`DATABASE__URL` using host `postgres`, and supply `AUTH__SECRET_KEY` and a
+development `AUTH__DEMO_PASSWORD`. Then:
+
+```bash
+docker compose --profile jobs up --build -d
+```
+
+Open `http://localhost:8000/docs`, authenticate as the configured admin, and
+submit `{"operation_type":"diagnostic","payload":{}}` to `POST /api/v1/jobs`.
+Poll the returned `status_url`. See [Async Jobs](docs/JOBS.md) for native setup,
+handler registration, real-service testing and explicit recovery commands.
+
 ## Documentation
 
 - [BRD](docs/BRD.md) — business requirements and the traceability matrix
@@ -63,3 +80,4 @@ uvicorn app.presentation.api.app:create_app --factory --reload
 - [Architecture Map](docs/ARCHITECTURE.md) — where new code goes, per-layer rules
 - [ADRs](docs/adr/) — architecture decision records
 - [Security](docs/SECURITY.md) · [Evaluation](docs/EVALUATION.md)
+- [Async Jobs](docs/JOBS.md) — startup, API, checkpoint and recovery contracts

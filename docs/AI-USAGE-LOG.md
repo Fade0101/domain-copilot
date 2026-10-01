@@ -88,15 +88,30 @@ Each entry records:
 
 ---
 
+### Entry 6 — Durable Queue and Auth Integration (Ticket #20)
+
+| Field | Detail |
+| --- | --- |
+| **Ticket** | #20 — Async Job Queue (Celery + Redis) |
+| **Task** | PostgreSQL lifecycle/checkpoints, Celery runner, HTTP 202/polling, explicit reconciliation, migrations, worker packaging and tests. |
+| **AI role** | Implemented and reviewed the changes in an isolated worktree; used the test-writer, security-reviewer and doc-writer skill guidance without spawning sub-agents. |
+| **Human role** | Supplied the ticket scope and directed coordination with Ticket #5. The final implementation reuses the merged JWT/ownership services; final code review remains with the human. |
+| **AI mistake** | Initial JSON validation accepted tuples and non-string dictionary keys, whose types change when read back from PostgreSQL. Self-review identified the checkpoint-resume inconsistency. |
+| **Fix** | Validate JSON primitives and string keys before persistence; regression tests reject values that change type on a JSON round trip. Review also tightened broker selection and prevented inherited Celery result settings from enabling another result store. |
+| **Verification** | Full local suite: 720 passed, one intentional permission-matrix skip. The built Linux image also passed all 20 real PostgreSQL/Redis + separate Celery worker tests, including hard worker kill/resume, Redis loss, 202, JWT/ownership and safe failures. Ruff, mypy, all three import-linter contracts, Docker build and Compose validation passed. `pip-audit -r requirements.txt` reported no known vulnerabilities; Gitleaks found no leaks in the staged changes. |
+
+---
+
 ## Summary Statistics
 
 | Metric | Value |
 |--------|-------|
-| Tickets covered | #1, #2, #3, #4 |
-| AI mistakes caught | 4 (architecture violation, error leakage, false status claim, boolean edge case) |
+| Tickets covered | #1, #2, #3, #4, #20 |
+| AI mistakes caught | 5 (architecture violation, error leakage, false status claim, boolean edge case, checkpoint JSON type drift) |
 | Mistakes caught by sub-agents | 1 (security reviewer → error leakage) |
 | Mistakes caught by human review | 3 (architecture violation, false claim, boolean edge case) |
 | Mistakes caught by automated tooling | 1 (import-linter → architecture violation) |
+| Mistakes caught by AI self-review | 1 (checkpoint JSON type drift) |
 
 ---
 

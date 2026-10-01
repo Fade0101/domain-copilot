@@ -132,3 +132,19 @@ class ResourceOwnershipError(AuthorizationError):
     Distinct from :class:`ResourceNotFoundError`: the object exists and belongs
     to somebody else (BRD AC-8.4, SEC-1a).
     """
+
+
+class JobStoreError(ApplicationError):
+    """Durable storage failed. (Transient server fault; never expose driver details.)"""
+
+
+class JobQueueUnavailableError(ApplicationError):
+    """The broker could not accept a job ID. The PostgreSQL job is still durable."""
+
+
+class JobPaused(Exception):
+    """A handler checkpointed a deliberate wait; leave the job STARTED and release its worker."""
+
+
+class JobCancelled(Exception):
+    """Cooperative cancellation signal; the runner records CANCELLED, not FAILED."""
