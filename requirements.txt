@@ -3,7 +3,7 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 
 # Database & ORM
-sqlalchemy>=2.0.29
+sqlalchemy[asyncio]>=2.0.29
 alembic>=1.13.1
 psycopg[binary]>=3.1.18
 pgvector>=0.2.5
