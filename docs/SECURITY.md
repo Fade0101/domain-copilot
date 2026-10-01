@@ -10,16 +10,23 @@ Evidence, tests, and implementation references will be added as each control is 
 
 ## 1. Identity & Access Management
 
-* [ ] **Authentication** — Secure login using a strong password hashing algorithm such as bcrypt or Argon2.
-* [ ] **Password Security** — Passwords are never stored in plaintext, logged, or returned through API responses.
-* [ ] **JWT Security** — Tokens use a strong configured signing secret, appropriate expiration, and server-side validation of signature, expiry, and claims.
-* [ ] **Role-Based Access Control** — Server-side authorization enforces the required roles:
+* [x] **Authentication** — Secure login using a strong password hashing algorithm such as bcrypt or Argon2.
+  * bcrypt (work factor 12 by default) behind the `IPasswordHasher` port — `app/infrastructure/auth/password_hasher.py`. Tests: `tests/unit/infrastructure/test_password_hasher.py`.
+* [x] **Password Security** — Passwords are never stored in plaintext, logged, or returned through API responses.
+  * `Password`, `User` and `AuthenticateUserCommand` mask their credential fields in `__repr__`; no application view or response schema has a hash field. Tests: `tests/unit/domain/test_auth_domain.py`, `tests/integration/test_auth_api.py`.
+* [x] **JWT Security** — Tokens use a strong configured signing secret, appropriate expiration, and server-side validation of signature, expiry, and claims.
+  * `app/infrastructure/auth/token_service.py` — pinned algorithm on decode, required-claim set, issuer/audience, and expiry judged against the injected clock. The secret has no default and production refuses to boot without `AUTH__SECRET_KEY`. Tests: `tests/unit/infrastructure/test_token_service.py`, `tests/unit/core/test_auth_settings.py`.
+* [x] **Role-Based Access Control** — Server-side authorization enforces the required roles:
   * `analyst`
   * `reviewer`
   * `admin`
-* [ ] **Resource Ownership** — Analysts can access only resources they are authorized to access. Reviewer/admin access follows the role permissions defined by the BRD.
+  * Matrix in `app/domain/auth/permissions.py`, enforced by `AuthorizationService`. Tests: `tests/unit/domain/test_permissions.py`, `tests/integration/test_rbac_api.py`.
+* [x] **Resource Ownership** — Analysts can access only resources they are authorized to access. Reviewer/admin access follows the role permissions defined by the BRD.
+  * `AuthorizationService.require_resource_access` consults persisted ownership through `IOwnershipQuery` for runs, jobs, traces and sessions. `SqlOwnershipQuery` reads it from PostgreSQL — one indexed `SELECT user_id … WHERE id = :id`, table name from an enum-keyed map, id bound, non-UUID ids treated as a miss rather than a database error. Tests: `tests/integration/test_sql_ownership.py` (real PostgreSQL, including survival across a new connection pool), `tests/integration/test_ownership_api.py`, `tests/unit/application/test_authorization_service.py`.
 * [ ] **Approval Authorization** — Only authorized reviewers/admins can approve, reject, or edit-and-approve clinical notes.
-* [ ] **Server-Side Enforcement** — Authorization decisions are never based solely on UI visibility or client-provided role information.
+  * Partially prepared: the `approve`/`reject`/`edit_clinical_note` permissions exist in the matrix and are asserted per role, but the approval endpoints and their workflow semantics belong to Ticket #19.
+* [x] **Server-Side Enforcement** — Authorization decisions are never based solely on UI visibility or client-provided role information.
+  * Identity is derived only from the validated bearer token plus the stored user record; no handler reads a role, `user_id` or `owner_id` from a body, query string or header. `GET /auth/me` reports the permission set for UI use, and every one of those permissions is still checked server-side. Tests: `tests/integration/test_auth_api.py::TestClientSuppliedIdentityIsIgnored`.
 
 ---
 

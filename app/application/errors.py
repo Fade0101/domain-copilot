@@ -10,6 +10,11 @@ The presentation layer maps both taxonomies to HTTP status codes by type
 (``HTTPException``) error itself. Note the split by *fault*: resource-not-found
 is a client error (404), whereas configuration failures are server faults (500)
 whose internal detail is never returned to the caller.
+
+The authentication (401) and authorization (403) subtrees are deliberately two
+separate hierarchies rather than one: "we do not know who you are" and "we know
+who you are and the answer is no" are different answers to the client and carry
+different response headers.
 """
 
 from __future__ import annotations
@@ -75,3 +80,55 @@ class ProviderInvalidRequestError(ProviderError):
 
 class ProviderConfigurationError(ProviderError):
     """Provider setup/configuration is invalid. (Non-transient)"""
+
+
+class AuthenticationError(ApplicationError):
+    """The caller's identity could not be established. Maps to HTTP 401.
+
+    Every subclass is answered at the boundary with the same static message and
+    a ``WWW-Authenticate: Bearer`` header. The distinctions below exist for
+    server-side logging and tests, never to tell the client which of "no such
+    account", "wrong password", or "bad token" applied -- that difference is an
+    enumeration oracle.
+    """
+
+
+class MissingCredentialsError(AuthenticationError):
+    """The request carried no credentials, or no usable ``Authorization`` header."""
+
+
+class InvalidCredentialsError(AuthenticationError):
+    """The submitted email/password pair did not match a stored credential."""
+
+
+class InvalidTokenError(AuthenticationError):
+    """A presented token was malformed, wrongly signed, or failed a claim check."""
+
+
+class ExpiredTokenError(InvalidTokenError):
+    """A presented token was well-formed and correctly signed but has expired."""
+
+
+class UnknownPrincipalError(AuthenticationError):
+    """A token validated, but its subject no longer resolves to a stored user.
+
+    Raised when a token outlives the account it names. Treated as 401 rather than
+    404 because the failure is "this credential no longer identifies anyone",
+    not "the resource you asked for is missing".
+    """
+
+
+class AuthorizationError(ApplicationError):
+    """The caller is authenticated but not permitted to do this. Maps to HTTP 403."""
+
+
+class PermissionDeniedError(AuthorizationError):
+    """The principal's role does not grant the permission this action requires."""
+
+
+class ResourceOwnershipError(AuthorizationError):
+    """The principal does not own the target object and has no broader grant.
+
+    Distinct from :class:`ResourceNotFoundError`: the object exists and belongs
+    to somebody else (BRD AC-8.4, SEC-1a).
+    """

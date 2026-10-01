@@ -17,9 +17,16 @@ from fastapi.testclient import TestClient
 
 from app.application.errors import (
     ApplicationError,
+    ExpiredTokenError,
+    InvalidCredentialsError,
+    InvalidTokenError,
     JobNotFoundError,
+    MissingCredentialsError,
+    PermissionDeniedError,
     PromptValidationError,
     ResourceNotFoundError,
+    ResourceOwnershipError,
+    UnknownPrincipalError,
 )
 from app.domain.shared.errors import (
     DomainError,
@@ -29,6 +36,14 @@ from app.domain.shared.errors import (
 from app.presentation.api.errors import register_exception_handlers
 
 _LEAK_MARKER = "secret-internal-detail-should-not-leak"
+
+_AUTH_ERRORS = {
+    "missing": MissingCredentialsError,
+    "credentials": InvalidCredentialsError,
+    "token": InvalidTokenError,
+    "expired": ExpiredTokenError,
+    "principal": UnknownPrincipalError,
+}
 
 
 @pytest.fixture
@@ -62,6 +77,18 @@ def client() -> TestClient:
     @app.get("/boom")
     async def _boom() -> None:
         raise RuntimeError(_LEAK_MARKER)
+
+    @app.get("/auth/{kind}")
+    async def _auth(kind: str) -> None:
+        raise _AUTH_ERRORS[kind](_LEAK_MARKER)
+
+    @app.get("/forbidden")
+    async def _forbidden() -> None:
+        raise PermissionDeniedError(_LEAK_MARKER)
+
+    @app.get("/not-yours")
+    async def _not_yours() -> None:
+        raise ResourceOwnershipError(_LEAK_MARKER)
 
     register_exception_handlers(app)
     return TestClient(app, raise_server_exceptions=False)
@@ -118,3 +145,64 @@ def test_unexpected_error_is_500_and_does_not_leak(client: TestClient) -> None:
 def test_subclass_of_resource_not_found_uses_base_handler() -> None:
     # JobNotFoundError has no dedicated handler; it must resolve via its base.
     assert issubclass(JobNotFoundError, ResourceNotFoundError)
+
+
+@pytest.mark.parametrize("kind", sorted(_AUTH_ERRORS))
+def test_every_authentication_failure_maps_to_the_same_401(client: TestClient, kind: str) -> None:
+    # One indistinguishable answer for "no credentials", "wrong password", "bad
+    # token", "expired token" and "user no longer exists". Telling them apart is
+    # useful to an attacker and to nobody else (BRD AC-8.3).
+    response = client.get(f"/auth/{kind}")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated", "code": "NOT_AUTHENTICATED"}
+    assert _LEAK_MARKER not in response.text
+
+
+@pytest.mark.parametrize("kind", sorted(_AUTH_ERRORS))
+def test_every_401_carries_the_bearer_challenge(client: TestClient, kind: str) -> None:
+    # RFC 9110 requires a challenge on a 401, and naming only Bearer keeps clients
+    # from trying Basic against this API.
+    assert client.get(f"/auth/{kind}").headers["www-authenticate"] == "Bearer"
+
+
+def test_permission_denied_maps_to_403(client: TestClient) -> None:
+    response = client.get("/forbidden")
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Insufficient permissions",
+        "code": "PERMISSION_DENIED",
+    }
+    # The server-side message names the role and permission; the client does not
+    # get it.
+    assert _LEAK_MARKER not in response.text
+
+
+def test_ownership_violation_maps_to_its_own_403(client: TestClient) -> None:
+    # A distinct code from PERMISSION_DENIED: "you may not do this at all" and
+    # "this particular object is not yours" are different situations for a client.
+    response = client.get("/not-yours")
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Access to this resource is forbidden",
+        "code": "RESOURCE_FORBIDDEN",
+    }
+    assert _LEAK_MARKER not in response.text
+
+
+def test_a_403_does_not_carry_an_authentication_challenge(client: TestClient) -> None:
+    # The caller is already authenticated; re-prompting for credentials would be
+    # wrong and would invite a client to discard a valid token.
+    assert "www-authenticate" not in client.get("/forbidden").headers
+
+
+def test_the_auth_error_hierarchies_are_separate(client: TestClient) -> None:
+    # A 401 subclass must not be reachable from the 403 handler, or vice versa.
+    for error in _AUTH_ERRORS.values():
+        assert not issubclass(error, PermissionDeniedError)
+    assert not issubclass(PermissionDeniedError, tuple(_AUTH_ERRORS.values()))
+    assert issubclass(ResourceOwnershipError, PermissionDeniedError.__bases__[0])
+
+
+def test_expired_token_resolves_through_the_invalid_token_handler() -> None:
+    # MRO resolution: no dedicated ExpiredTokenError handler is registered.
+    assert issubclass(ExpiredTokenError, InvalidTokenError)

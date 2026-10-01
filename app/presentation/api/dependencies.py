@@ -9,6 +9,10 @@ and what lets the integration test resolve the real adapter through DI.
 
 from __future__ import annotations
 
+from app.application.auth.use_cases import (
+    AuthenticateUserUseCase,
+    ResolvePrincipalUseCase,
+)
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
@@ -24,6 +28,16 @@ def get_app_container() -> Container:
 def get_register_document_use_case() -> RegisterDocumentUseCase:
     """Provide the RegisterDocument use case wired to its ports by the container."""
     return get_container().register_document_use_case()
+
+
+def get_authenticate_user_use_case() -> AuthenticateUserUseCase:
+    """Provide the AuthenticateUser use case (login) built by the container (FR-8)."""
+    return get_container().authenticate_user_use_case()
+
+
+def get_resolve_principal_use_case() -> ResolvePrincipalUseCase:
+    """Provide the ResolvePrincipal use case used on every protected request (FR-8)."""
+    return get_container().resolve_principal_use_case()
 
 
 def get_prompt_provider() -> IPromptProvider:
