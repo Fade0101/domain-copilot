@@ -15,8 +15,22 @@ from pydantic import SecretStr
 
 from app.application.errors import ConfigurationError
 from app.core.config import Settings, get_settings
-from app.core.container import Container, build_jwt_secret, get_container
+from app.core.container import (
+    Container,
+    build_database,
+    build_jwt_secret,
+    get_container,
+)
 from app.infrastructure.auth.token_service import MIN_SECRET_LENGTH
+from app.infrastructure.persistence.database import normalize_database_url
+from app.infrastructure.persistence.in_memory.ownership_query import (
+    InMemoryOwnershipQuery,
+)
+from app.infrastructure.persistence.in_memory.user_repository import (
+    InMemoryUserRepository,
+)
+from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
+from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 
 _AUTH_VARS = (
     "AUTH__SECRET_KEY",
@@ -27,7 +41,12 @@ _AUTH_VARS = (
     "AUTH__BCRYPT_ROUNDS",
     "AUTH__SEED_DEMO_ACCOUNTS",
     "AUTH__DEMO_PASSWORD",
+    "DATABASE__URL",
+    "DATABASE__ECHO",
 )
+
+#: Never connected to -- create_async_engine is lazy, so this only has to parse.
+_DUMMY_DB_URL = "postgresql+asyncpg://user:pass@localhost:5432/unused"
 
 
 def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -211,6 +230,81 @@ class TestSigningSecretResolution:
         assert secret not in caplog.text
 
 
+class TestDatabaseSelection:
+    """Which persistence the composition root picks, and when it refuses to pick one."""
+
+    def test_development_without_a_url_falls_back_to_memory_and_warns(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _isolate_env(monkeypatch)
+        with caplog.at_level(logging.WARNING, logger="app.core.container"):
+            assert build_database(Settings()) is None
+        assert "DATABASE__URL is not configured" in caplog.text
+        assert "lost on restart" in caplog.text
+
+    def test_a_configured_url_produces_a_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _isolate_env(monkeypatch)
+        monkeypatch.setenv("DATABASE__URL", _DUMMY_DB_URL)
+        database = build_database(Settings())
+        assert database is not None
+        assert database.session_factory is not None
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t"])
+    def test_a_blank_url_counts_as_absent(
+        self, monkeypatch: pytest.MonkeyPatch, blank: str
+    ) -> None:
+        _isolate_env(monkeypatch)
+        monkeypatch.setenv("DATABASE__URL", blank)
+        assert build_database(Settings()) is None
+
+    def test_in_memory_adapters_are_wired_without_a_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _isolate_env(monkeypatch)
+        monkeypatch.setenv("AUTH__SECRET_KEY", "x" * MIN_SECRET_LENGTH)
+        container = Container(settings=Settings())
+        assert isinstance(container.ownership_query, InMemoryOwnershipQuery)
+        assert isinstance(container.user_repository, InMemoryUserRepository)
+        assert container.database is None
+
+    def test_sql_adapters_are_wired_with_a_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The decisive wiring assertion: with a database configured, ownership is
+        # answered by a query against PostgreSQL rather than a process dict.
+        _isolate_env(monkeypatch)
+        monkeypatch.setenv("AUTH__SECRET_KEY", "x" * MIN_SECRET_LENGTH)
+        monkeypatch.setenv("DATABASE__URL", _DUMMY_DB_URL)
+        container = Container(settings=Settings())
+        assert isinstance(container.ownership_query, SqlOwnershipQuery)
+        assert isinstance(container.user_repository, SqlUserRepository)
+        assert container.database is not None
+
+    @pytest.mark.parametrize(
+        ("given", "expected"),
+        [
+            (
+                "postgresql://u:p@h:5432/db",
+                "postgresql+asyncpg://u:p@h:5432/db",
+            ),
+            (
+                "postgres://u:p@h:5432/db",
+                "postgresql+asyncpg://u:p@h:5432/db",
+            ),
+            (
+                "postgresql+asyncpg://u:p@h:5432/db",
+                "postgresql+asyncpg://u:p@h:5432/db",
+            ),
+            (
+                "  postgresql://u:p@h:5432/db  ",
+                "postgresql+asyncpg://u:p@h:5432/db",
+            ),
+        ],
+    )
+    def test_a_sync_url_is_rewritten_to_the_async_driver(self, given: str, expected: str) -> None:
+        # Every tool and container image hands out postgresql://; pasting one in
+        # should not be a startup failure.
+        assert normalize_database_url(given) == expected
+
+
 class TestContainerWiring:
     def test_the_container_exposes_the_auth_collaborators(
         self, monkeypatch: pytest.MonkeyPatch
@@ -250,7 +344,19 @@ class TestContainerWiring:
     ) -> None:
         _isolate_env(monkeypatch)
         monkeypatch.setenv("ENVIRONMENT", "production")
-        with pytest.raises(ConfigurationError):
+        monkeypatch.setenv("DATABASE__URL", _DUMMY_DB_URL)
+        with pytest.raises(ConfigurationError, match="AUTH__SECRET_KEY"):
+            Container(settings=Settings())
+
+    def test_a_production_container_without_a_database_does_not_construct(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # In-memory ownership in production would mean authorization decisions
+        # served from a store that forgets on restart.
+        _isolate_env(monkeypatch)
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("AUTH__SECRET_KEY", "x" * MIN_SECRET_LENGTH)
+        with pytest.raises(ConfigurationError, match="DATABASE__URL"):
             Container(settings=Settings())
 
 
@@ -278,6 +384,7 @@ class TestSeedingGuards:
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("AUTH__SECRET_KEY", "x" * MIN_SECRET_LENGTH)
         monkeypatch.setenv("AUTH__DEMO_PASSWORD", "dev-only-password-1234")
+        monkeypatch.setenv("DATABASE__URL", _DUMMY_DB_URL)
         container = Container(settings=Settings())
 
         with caplog.at_level(logging.WARNING, logger="app.core.container"):

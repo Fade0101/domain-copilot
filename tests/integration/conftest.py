@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.core.container import get_container
 from app.domain.auth.value_objects import EmailAddress, ResourceType, Role, UserId
+from app.infrastructure.persistence.in_memory.ownership_query import (
+    InMemoryOwnershipQuery,
+)
 from app.presentation.api.app import create_app
 
 #: Development-only credential for the seeded demo accounts. Supplied through the
@@ -46,6 +49,10 @@ def client() -> Iterator[TestClient]:
     monkeypatch.setenv("AUTH__DEMO_PASSWORD", DEMO_PASSWORD)
     monkeypatch.setenv("AUTH__SEED_DEMO_ACCOUNTS", "true")
     monkeypatch.setenv("AUTH__BCRYPT_ROUNDS", "10")
+    # Hermetic regardless of the developer's .env: this module exercises the HTTP
+    # surface on in-memory adapters. Durability against PostgreSQL is proven in
+    # test_sql_ownership.py.
+    monkeypatch.delenv("DATABASE__URL", raising=False)
 
     get_settings.cache_clear()
     get_container.cache_clear()
@@ -96,8 +103,17 @@ def own(resource_type: ResourceType, resource_id: str, owner: UserId) -> None:
     Ownership rows are normally written by whatever creates a run, job, trace or
     session -- features that belong to later tickets. Until then this is how a test
     arranges a persisted owner for the guard to find.
+
+    These tests run on the in-memory adapter (no ``DATABASE__URL``), which is why
+    this can reach for ``register``. The PostgreSQL-backed equivalents live in
+    ``test_sql_ownership.py`` and insert real rows instead.
     """
-    get_container().ownership_query.register(resource_type, resource_id, owner)
+    query = get_container().ownership_query
+    assert isinstance(query, InMemoryOwnershipQuery), (
+        "integration fixtures expect the in-memory ownership adapter; "
+        "DATABASE__URL must not be set for this module"
+    )
+    query.register(resource_type, resource_id, owner)
 
 
 async def find_user_id(email: str) -> UserId:
