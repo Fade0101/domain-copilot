@@ -102,12 +102,13 @@ pytestmark = pytest.mark.skipif(
 def _preserving_logging() -> Iterator[None]:
     """Restore logger state around an in-process Alembic run.
 
-    ``migrations/env.py`` calls ``logging.config.fileConfig``, which defaults to
-    ``disable_existing_loggers=True`` and switches off every logger already
-    created -- including the application's. Running a migration in-process would
-    therefore silence ``app.core.container`` for the rest of the pytest session
-    and make unrelated ``caplog`` assertions fail. env.py is standard Alembic
-    boilerplate owned by Ticket #6, so this contains the effect here instead.
+    ``migrations/env.py`` calls ``logging.config.fileConfig``, whose default
+    ``disable_existing_loggers=True`` switches off every logger already created --
+    including the application's. That silenced ``app.core.container`` for the rest
+    of the pytest session and made unrelated ``caplog`` assertions fail. env.py
+    now passes ``disable_existing_loggers=False``, so this is belt-and-braces: it
+    keeps an in-process migration from reaching outside this module if that
+    argument is ever dropped.
     """
     manager = logging.Logger.manager
     before = {
@@ -149,15 +150,18 @@ def migrated_database() -> Iterator[str]:
     _admin_sql(f'DROP DATABASE IF EXISTS "{_SCRATCH_DB}"')
     _admin_sql(f'CREATE DATABASE "{_SCRATCH_DB}"')
     try:
-        config = Config("alembic.ini")
-        config.set_main_option(
-            "sqlalchemy.url",
-            _scratch_url().replace("postgresql://", "postgresql+asyncpg://", 1),
-        )
-        # Alembic's env.py calls asyncio.run itself, so this must not run inside
-        # a loop -- which is why the fixture is sync.
-        with _preserving_logging():
-            command.upgrade(config, "head")
+        # No set_main_option and no -x override: the URL is resolved by env.py
+        # from DATABASE__URL exactly as it is for an operator running
+        # `alembic upgrade head`. If that wiring breaks, this fixture fails.
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setenv("DATABASE__URL", _scratch_url())
+        try:
+            # Alembic's env.py calls asyncio.run itself, so this must not run
+            # inside a loop -- which is why the fixture is sync.
+            with _preserving_logging():
+                command.upgrade(Config("alembic.ini"), "head")
+        finally:
+            monkeypatch.undo()
         yield _scratch_url()
     finally:
         _admin_sql(

@@ -8,6 +8,7 @@ in development (generate and warn) than in production (refuse to start).
 from __future__ import annotations
 
 import logging
+from configparser import ConfigParser
 from pathlib import Path
 
 import pytest
@@ -431,6 +432,32 @@ class TestSeedingGuards:
         assert len(first.created) == 3
         assert second.created == ()
         assert len(second.skipped) == 3
+
+
+class TestMigrationConfiguration:
+    """``alembic.ini`` must not carry a connection string (constraint C6).
+
+    The behavioural proof that ``alembic upgrade head`` resolves its URL from
+    ``DATABASE__URL`` lives in ``tests/integration/test_sql_ownership.py``, whose
+    fixture migrates with no programmatic override. This guard runs without a
+    database, so a credential pasted into the committed ini fails here.
+    """
+
+    def test_the_ini_carries_no_connection_string(self) -> None:
+        parser = ConfigParser()
+        parser.read(Path("alembic.ini"), encoding="utf-8")
+        url = parser.get("alembic", "sqlalchemy.url", fallback="").strip()
+        assert url == "", (
+            "alembic.ini must leave sqlalchemy.url blank so env.py resolves it from "
+            f"DATABASE__URL; found {url!r}"
+        )
+
+    def test_the_ini_still_prepends_the_project_root(self) -> None:
+        # env.py imports app.core.config, which only resolves because Alembic puts
+        # the project root on sys.path.
+        parser = ConfigParser()
+        parser.read(Path("alembic.ini"), encoding="utf-8")
+        assert parser.get("alembic", "prepend_sys_path", fallback="").strip() == "."
 
 
 def test_get_container_is_cached() -> None:
