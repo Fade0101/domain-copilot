@@ -92,6 +92,22 @@ class PromptSettings(BaseModel):
     strict: bool = True
 
 
+class DatabaseSettings(BaseModel):
+    """PostgreSQL connection configuration (BRD FR-8 persistence, SEC-1a).
+
+    ``url`` has no default. Without it the application falls back to in-memory
+    auth adapters, which is convenient for a dev server but means user identity
+    and object ownership are lost on restart -- so the composition root warns in
+    development and refuses to start in production.
+
+    A plain ``postgresql://`` URL is accepted and rewritten to the async driver;
+    see :func:`~app.infrastructure.persistence.database.normalize_database_url`.
+    """
+
+    url: str | None = None
+    echo: bool = False
+
+
 class AuthSettings(BaseModel):
     """Authentication and RBAC configuration (BRD FR-8, AC-8.1).
 
@@ -144,6 +160,7 @@ class Settings(BaseSettings):
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     prompts: PromptSettings = Field(default_factory=PromptSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
 
     def is_production(self) -> bool:
         """Return whether this process is configured as a production deployment.

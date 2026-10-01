@@ -34,6 +34,7 @@ from app.application.errors import ConfigurationError, ProviderConfigurationErro
 from app.application.ports.audit import IAuditSink
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
+from app.application.ports.ownership import IOwnershipQuery
 from app.application.ports.passwords import IPasswordHasher
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
@@ -48,6 +49,7 @@ from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
 from app.infrastructure.llm.fallback import FallbackLLMProvider
 from app.infrastructure.llm.groq_adapter import GroqAdapter
 from app.infrastructure.llm.ollama_adapter import OllamaAdapter
+from app.infrastructure.persistence.database import Database
 from app.infrastructure.persistence.in_memory.document_repository import (
     InMemoryDocumentRepository,
 )
@@ -57,6 +59,8 @@ from app.infrastructure.persistence.in_memory.ownership_query import (
 from app.infrastructure.persistence.in_memory.user_repository import (
     InMemoryUserRepository,
 )
+from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
+from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
@@ -148,6 +152,30 @@ def build_jwt_secret(settings: Settings) -> str:
     return secrets.token_urlsafe(_EPHEMERAL_SECRET_BYTES)
 
 
+def build_database(settings: Settings) -> Database | None:
+    """Build the database connection, or ``None`` to run on in-memory adapters.
+
+    Returning ``None`` is a development convenience: the app boots and the auth
+    flows work without PostgreSQL running. It is not safe beyond that, because
+    user identity and object ownership then live in process memory and vanish on
+    restart -- so production refuses to start without ``DATABASE__URL`` rather than
+    silently serving authorization decisions from a store that forgets.
+    """
+    url = (settings.database.url or "").strip()
+    if not url:
+        if settings.is_production():
+            raise ConfigurationError(
+                "DATABASE__URL must be set when ENVIRONMENT=production; refusing to "
+                "start with in-memory user identity and object ownership."
+            )
+        logger.warning(
+            "DATABASE__URL is not configured; user identity and object ownership will "
+            "be held in memory and lost on restart. Set DATABASE__URL to persist them."
+        )
+        return None
+    return Database(url, echo=settings.database.echo)
+
+
 class Container:
     """Holds process-wide singletons and builds use cases via constructor injection.
 
@@ -175,11 +203,18 @@ class Container:
         )
 
         # --- Authentication & RBAC (Ticket #5) ------------------------------
-        self._user_repository: IUserRepository = InMemoryUserRepository()
-        # Held as the concrete type, not the port: the port is read-only, and
-        # nothing yet records ownership, so seeding and tests need `register`.
-        # This narrows to IOwnershipQuery the moment a feature creates the rows.
-        self._ownership_query = InMemoryOwnershipQuery()
+        # PostgreSQL when configured, in-memory otherwise. Both satisfy the same
+        # ports, so nothing above this line changes; what changes is whether an
+        # authorization decision survives a restart.
+        self._database = build_database(settings)
+        self._user_repository: IUserRepository
+        self._ownership_query: IOwnershipQuery
+        if self._database is None:
+            self._user_repository = InMemoryUserRepository()
+            self._ownership_query = InMemoryOwnershipQuery()
+        else:
+            self._user_repository = SqlUserRepository(self._database.session_factory)
+            self._ownership_query = SqlOwnershipQuery(self._database.session_factory)
         self._password_hasher: IPasswordHasher = BcryptPasswordHasher(
             rounds=settings.auth.bcrypt_rounds
         )
@@ -216,8 +251,18 @@ class Container:
         return self._user_repository
 
     @property
-    def ownership_query(self) -> InMemoryOwnershipQuery:
+    def ownership_query(self) -> IOwnershipQuery:
         return self._ownership_query
+
+    @property
+    def database(self) -> Database | None:
+        """The database connection, or ``None`` when running on in-memory adapters."""
+        return self._database
+
+    async def dispose(self) -> None:
+        """Release process-wide resources. Called from the application lifespan."""
+        if self._database is not None:
+            await self._database.dispose()
 
     @property
     def password_hasher(self) -> IPasswordHasher:

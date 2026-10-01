@@ -31,9 +31,13 @@ from app.presentation.api.routes import auth, documents, health, resources
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Seed development demo accounts on startup (skipped in production)."""
-    await get_container().seed_demo_accounts()
-    yield
+    """Seed development demo accounts on startup; release the connection pool on shutdown."""
+    container = get_container()
+    await container.seed_demo_accounts()
+    try:
+        yield
+    finally:
+        await container.dispose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
