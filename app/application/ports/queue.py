@@ -1,22 +1,12 @@
-"""Port: asynchronous job queue (BRD T7; SDD: Celery + Redis broker).
-
-STUB -- final contract in the async-jobs ticket (#20). SDK-free: no Celery or
-Redis type appears here, so application code stays broker-agnostic and the T7
-job lifecycle is owned by the domain/application layers, not the transport.
-"""
+"""Port: dispatch a durable job ID, never broker-owned job state (BRD T7)."""
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+from uuid import UUID
 
 
 class IJobQueue(Protocol):
-    async def enqueue(
-        self,
-        job_type: str,
-        payload: dict[str, Any],
-        *,
-        idempotency_key: str | None = None,
-    ) -> str:
-        """Enqueue a job and return its job id. Idempotent on ``idempotency_key``."""
+    async def enqueue(self, job_id: UUID) -> None:
+        """Publish an existing PostgreSQL job; raise JobQueueUnavailableError on failure."""
         ...

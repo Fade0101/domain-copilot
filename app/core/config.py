@@ -53,12 +53,16 @@ class EmbeddingSettings(BaseModel):
 
 
 class QueueSettings(BaseModel):
-    """Async job queue configuration (T7; broker adapter finalized in #20)."""
+    """Celery/Redis configuration. URLs may carry credentials and are omitted from repr."""
 
-    broker_url: str = "redis://localhost:6379/0"
-    result_backend: str = "redis://localhost:6379/1"
-    default_queue: str = "default"
-    visibility_timeout_seconds: int = 3600
+    broker_url: str = Field(default="redis://localhost:6379/0", repr=False)
+    # Compatibility with Ticket 3 configuration; the runner disables this backend.
+    result_backend: str = Field(default="redis://localhost:6379/1", repr=False)
+    default_queue: str = Field(default="default", min_length=1, max_length=100)
+    visibility_timeout_seconds: int = Field(default=3600, gt=0)
+    publish_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    max_payload_bytes: int = Field(default=65_536, gt=0)
+    max_checkpoint_bytes: int = Field(default=1_048_576, gt=0)
 
 
 class RetrievalSettings(BaseModel):
@@ -104,7 +108,7 @@ class DatabaseSettings(BaseModel):
     see :func:`~app.infrastructure.persistence.database.normalize_database_url`.
     """
 
-    url: str | None = None
+    url: str | None = Field(default=None, repr=False)
     echo: bool = False
 
 
