@@ -15,13 +15,14 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 
 | ADR | Title | Status | Ticket |
 | --- | ----- | ------ | ------ |
+| [ADR-004](./ADR-004-async-job-execution.md) | Durable async jobs, Celery/Redis and checkpoint resume | Accepted | #20 |
 | [ADR-005](./ADR-005-clean-hexagonal-boundary-enforcement.md) | Clean/Hexagonal boundary enforcement | Accepted | #2 |
 | [ADR-006](./ADR-006-configuration-prompts-and-error-model.md) | Configuration, prompts & error model | Accepted | #3 |
 | [ADR-007](./ADR-007-provider-abstraction-and-selection.md) | Provider abstraction & selection | Accepted | #7 |
 
 ## Reserved (not yet written)
 
-ADR-001–004 are **reserved** for the major decisions called out by AR-7 and are
+ADR-001–003 are **reserved** for the remaining major decisions called out by AR-7 and are
 written by the ticket that actually makes each decision — they are intentionally
 *not* created here:
 
@@ -30,7 +31,6 @@ written by the ticket that actually makes each decision — they are intentional
 | ADR-001 | Chunking & hybrid retrieval strategy |
 | ADR-002 | Multi-agent orchestration & approval gate |
 | ADR-003 | Vector store / persistence choice (pgvector) |
-| ADR-004 | T7 async job execution (Celery/Redis, resumability) |
 
 Creating a reserved ADR prematurely (before its decision is made) would record a
 speculative rather than a real decision, so each is deferred to its own ticket.

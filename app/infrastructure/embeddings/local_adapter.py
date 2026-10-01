@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-
-from sentence_transformers import SentenceTransformer
+from typing import TYPE_CHECKING
 
 from app.application.ports.embeddings import EmbeddingResult, IEmbeddingProvider
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class LocalEmbeddingAdapter(IEmbeddingProvider):
@@ -22,6 +26,10 @@ class LocalEmbeddingAdapter(IEmbeddingProvider):
 
     def _get_model(self) -> SentenceTransformer:
         if self._model is None:
+            # A Celery process that only imports the composition root must not
+            # load the ML stack before it can consume a job.
+            from sentence_transformers import SentenceTransformer
+
             self._model = SentenceTransformer(self._model_name)
         return self._model
 

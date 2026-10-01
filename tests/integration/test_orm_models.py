@@ -9,9 +9,9 @@ So this migrates a scratch database to head and runs the same comparison
 autogenerate uses, requiring it to find nothing. A column added to a model without
 a migration, or a migration written without updating the models, fails here.
 
-Skipped when no database is reachable, like the other PostgreSQL-backed tests.
-``TEST_DATABASE_URL`` overrides the connection; the default matches
-``docker-compose.yml``.
+Database tests require ``TEST_DATABASE_URL`` pointing at a disposable PostgreSQL
+service. They skip locally when it is absent, and fail in CI if unavailable.
+The model-only checks always run.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -27,18 +29,29 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, inspect
+from sqlalchemy.engine import make_url
 
+from app.application.jobs.diagnostic import DiagnosticJobHandler
+from app.application.jobs.registry import JobHandlerRegistry
+from app.application.jobs.runner import JobRunner
+from app.domain.auth.value_objects import ResourceType, Role
+from app.domain.jobs.entities import Job, JobState
 from app.infrastructure.persistence.database import Database
-from app.infrastructure.persistence.models import Base
+from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
+from app.infrastructure.persistence.models import Base, JobModel, UserModel
+from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
+from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
+from tests.support.fakes import FixedClock, SequentialIdGenerator, build_user
 
-_ADMIN_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
-)
-_SCRATCH_DB = "dc_ticket6_models_test"
+_ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "")
+_SCRATCH_DB = "dc_ticket6_models_" + uuid4().hex
 
 
 def _database_reachable() -> bool:
     import asyncio
+
+    if not _ADMIN_URL:
+        return False
 
     try:
         import asyncpg
@@ -57,12 +70,6 @@ def _database_reachable() -> bool:
         return asyncio.run(probe())
     except Exception:
         return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason=f"no PostgreSQL reachable at {_ADMIN_URL.rsplit('@', 1)[-1]}",
-)
 
 
 @contextmanager
@@ -104,14 +111,17 @@ def _admin_sql(statement: str) -> None:
 
 
 def _scratch_url() -> str:
-    base, _, _ = _ADMIN_URL.rpartition("/")
-    return f"{base}/{_SCRATCH_DB}"
+    return make_url(_ADMIN_URL).set(database=_SCRATCH_DB).render_as_string(hide_password=False)
 
 
 @pytest.fixture(scope="module")
 def migrated_database() -> Iterator[str]:
     """A scratch database migrated to head, dropped on the way out."""
-    _admin_sql(f'DROP DATABASE IF EXISTS "{_SCRATCH_DB}"')
+    if not _database_reachable():
+        reason = "Set TEST_DATABASE_URL to a reachable disposable PostgreSQL service"
+        if os.environ.get("CI"):
+            pytest.fail(reason)
+        pytest.skip(reason)
     _admin_sql(f'CREATE DATABASE "{_SCRATCH_DB}"')
     try:
         monkeypatch = pytest.MonkeyPatch()
@@ -131,11 +141,17 @@ def migrated_database() -> Iterator[str]:
 
 
 def _diff(connection: Connection) -> list[object]:
-    context = MigrationContext.configure(connection)
+    context = MigrationContext.configure(connection, opts={"compare_server_default": True})
     return list(compare_metadata(context, Base.metadata))
 
 
 class TestModelsMatchMigrations:
+    def test_alembic_check_uses_the_shared_metadata(self, migrated_database: str) -> None:
+        config = Config("alembic.ini")
+        config.set_main_option("sqlalchemy.url", migrated_database.replace("%", "%%"))
+        with _preserving_logging():
+            command.check(config)
+
     async def test_autogenerate_finds_no_difference(self, migrated_database: str) -> None:
         # The whole point of the models. If this fails, `alembic revision
         # --autogenerate` would emit a migration for a difference that is really a
@@ -168,6 +184,99 @@ class TestModelsMatchMigrations:
 
         tables.discard("alembic_version")  # Alembic's own bookkeeping, never mapped.
         assert tables == set(Base.metadata.tables)
+
+
+class TestAuthJobModelIntegration:
+    async def test_runner_results_are_readable_through_shared_models(
+        self, migrated_database: str
+    ) -> None:
+        database = Database(migrated_database)
+        engine = create_job_engine(migrated_database)
+        identifiers = SequentialIdGenerator()
+        clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
+        owner = build_user(
+            user_id=identifiers.new_id(),
+            email="orm-owner@example.com",
+            role=Role.ANALYST,
+            created_at=clock.now(),
+        )
+        job = Job(
+            id=UUID(identifiers.new_id()),
+            user_id=UUID(owner.id.value),
+            operation_type="diagnostic",
+            input_payload={},
+            correlation_id=UUID(identifiers.new_id()),
+            created_at=clock.now(),
+            updated_at=clock.now(),
+        )
+        try:
+            await SqlUserRepository(database.session_factory).add(owner)
+            store = PostgresJobStore(engine)
+            await store.add(job)
+            await store.transition(job.id, JobState.QUEUED, clock.now())
+            runner = JobRunner(store, JobHandlerRegistry([DiagnosticJobHandler()]), clock)
+            await runner.run(job.id)
+
+            async with database.session_factory() as session:
+                mapped_owner = await session.get(UserModel, UUID(owner.id.value))
+                mapped_job = await session.get(JobModel, job.id)
+                assert mapped_owner is not None
+                assert mapped_owner.email == owner.email.value
+                assert mapped_owner.hashed_password == owner.hashed_password
+                assert mapped_job is not None
+                assert mapped_job.user_id == mapped_owner.id
+                assert mapped_job.state == JobState.COMPLETED.value
+                assert mapped_job.operation_type == "diagnostic"
+                assert mapped_job.input_payload == {}
+                assert mapped_job.result_payload == {"ok": True}
+                assert mapped_job.checkpoint_data == {"probe-v1": {"ok": True}}
+                assert mapped_job.correlation_id == job.correlation_id
+                assert mapped_job.started_at == clock.now()
+                assert mapped_job.completed_at == clock.now()
+                assert not mapped_job.cancellation_requested
+            ownership = SqlOwnershipQuery(database.session_factory)
+            assert await ownership.owner_of(ResourceType.JOB, str(job.id)) == owner.id
+        finally:
+            engine.dispose()
+            await database.dispose()
+
+    async def test_legacy_orm_rows_keep_migration_defaults_without_dispatch(
+        self, migrated_database: str
+    ) -> None:
+        database = Database(migrated_database)
+        engine = create_job_engine(migrated_database)
+        owner_id = UUID(int=100)
+        job_id = UUID(int=101)
+        try:
+            async with database.session_factory() as session:
+                session.add(
+                    UserModel(
+                        id=owner_id,
+                        email="legacy-orm-owner@example.com",
+                        hashed_password="unused-test-digest",
+                        role=Role.ANALYST.value,
+                    )
+                )
+                await session.flush()
+                legacy = JobModel(
+                    id=job_id,
+                    user_id=owner_id,
+                    state=JobState.PENDING.value,
+                    idempotency_key=str(job_id),
+                    attempt_number=0,
+                    max_attempts=3,
+                    checkpoint_data={},
+                )
+                session.add(legacy)
+                await session.commit()
+                await session.refresh(legacy)
+                assert legacy.operation_type is None
+                assert legacy.input_payload == {}
+                assert legacy.cancellation_requested is False
+            assert job_id not in await PostgresJobStore(engine).dispatchable(100)
+        finally:
+            engine.dispose()
+            await database.dispose()
 
 
 class TestModelDefinitions:

@@ -21,6 +21,7 @@ from app.application.errors import (
     InvalidCredentialsError,
     InvalidTokenError,
     JobNotFoundError,
+    JobStoreError,
     MissingCredentialsError,
     PermissionDeniedError,
     PromptValidationError,
@@ -78,6 +79,10 @@ def client() -> TestClient:
     async def _boom() -> None:
         raise RuntimeError(_LEAK_MARKER)
 
+    @app.get("/job-store")
+    async def _job_store() -> None:
+        raise JobStoreError(_LEAK_MARKER)
+
     @app.get("/auth/{kind}")
     async def _auth(kind: str) -> None:
         raise _AUTH_ERRORS[kind](_LEAK_MARKER)
@@ -98,6 +103,15 @@ def test_invariant_maps_to_422(client: TestClient) -> None:
     response = client.get("/invariant")
     assert response.status_code == 422
     assert response.json() == {"detail": "bad filename", "code": "INVARIANT_VIOLATION"}
+
+
+def test_job_storage_failure_is_a_safe_server_response(client: TestClient) -> None:
+    response = client.get("/job-store")
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Job storage is unavailable",
+        "code": "JOB_STORE_UNAVAILABLE",
+    }
 
 
 def test_transition_maps_to_409(client: TestClient) -> None:

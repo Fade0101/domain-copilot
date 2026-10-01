@@ -35,7 +35,7 @@ direction:
 | ------------------- | -------------------- |
 | `adapters/` (interface adapters) | `app/infrastructure/*` (driven adapters) and `app/presentation/*` (driving adapters) |
 | `api/` (FastAPI app, routes, schemas, SSE) | `app/presentation/api/*` |
-| `workers/` (Celery/T7 background execution) | `app/infrastructure/*` (future ticket) |
+| `workers/` (Celery/T7 background execution) | `app/core/worker.py` entrypoint; `app/infrastructure/queue/` adapter; `app/application/jobs/` runner |
 
 The exact directory structure may evolve during implementation, but dependency
 direction and architectural boundaries must remain intact, and are enforced
@@ -103,13 +103,13 @@ port in a later ticket.
 Configuration is externalised via `pydantic-settings` in
 [`app/core/config.py`](../app/core/config.py) — the only place pydantic-settings
 appears (an edge concern). `Settings` composes nested groups (`llm`, `embedding`,
-`queue`, `retrieval`, `limits`, `retry`, `prompts`) populated with the `__` nested
-delimiter, so `LLM__MODEL` sets `settings.llm.model`. Every field has a safe
-default; real providers/brokers are supplied per environment. **Secrets never live
+`queue`, `database`, `auth`, `retrieval`, `limits`, `retry`, `prompts`) populated with
+the `__` nested delimiter, so `LLM__MODEL` sets `settings.llm.model`. Jobs require
+`DATABASE__URL`; production also requires the configured JWT secret. **Secrets never live
 in code or git (C6):** API keys are `SecretStr | None = None`, read from the
 environment at runtime and masked in logs/`repr`. `.env.example` documents every
-variable with blank secret values. Adapters that consume this config land in
-later tickets (#7 providers, #9 vector store, #20 queue).
+variable with blank secret values. Connection URLs are excluded from settings
+`repr`. Provider and queue adapters consume these settings through the container.
 
 ### 1.5 Prompts (AR-4)
 
@@ -238,6 +238,22 @@ Logical domain components own their persistence boundaries and must not bypass a
 The implementation does not require independent databases for every logical component.
 
 For Part B, the system uses a single PostgreSQL deployment with logically separated tables/schema ownership.
+
+Ticket #6's declarative mappings live in
+[`app/infrastructure/persistence/models.py`](../app/infrastructure/persistence/models.py).
+They mirror all eleven tables created by migrations through `c83d20a19f04`,
+including Ticket #5 ownership/session fields and Ticket #20 job execution fields.
+`Base.metadata` is shared by Alembic autogeneration and `PostgresJobStore`, so
+the runner has no separate table declaration that can drift from the ORM.
+Ticket #5's user and ownership adapters retain their bound SQL against the same
+schema; ORM objects do not cross application or domain boundaries.
+
+Migrations remain the schema authority. After `alembic upgrade head`,
+`alembic check` must report no pending operations. Changes to mapped columns,
+defaults, constraints or indexes must accompany a migration. The real PostgreSQL
+tests in `tests/integration/test_orm_models.py` compare the schema and server
+defaults, exercise Alembic's configured metadata, and read runner-written jobs
+through the ORM and Ticket #5 ownership query.
 
 Redis is infrastructure for:
 
@@ -433,7 +449,35 @@ The reviewer decision and resulting finalization are auditable.
 
 ## 9. Async Event Flow
 
-Long-running jobs communicate progress through durable job events.
+### Implemented in Ticket #20
+
+`POST /api/v1/jobs` authenticates with Ticket #5's JWT/permission dependencies,
+persists PENDING then QUEUED, publishes a UUID, and returns HTTP 202 with its
+polling URL. `GET /api/v1/jobs/{job_id}` enforces PostgreSQL ownership and returns
+state/result/error. Generic submissions require admin permission; per-domain
+routes will authorize their own operations in #8/#12/#17.
+
+| Concern | Implementation |
+| --- | --- |
+| Exact lifecycle | `app/domain/jobs/entities.py` |
+| Store/queue/handler contracts | `app/application/ports/jobs.py`, `queue.py` |
+| Submission, checkpoint runner, registry | `app/application/jobs/` |
+| Durable rows and execution locks | `app/infrastructure/persistence/job_store.py` |
+| Celery UUID transport | `app/infrastructure/queue/celery_queue.py` |
+| Wiring and worker | `app/core/container.py`, `app/core/worker.py` |
+| Explicit reconciliation/resume | `python -m app.core.jobs_cli` |
+
+Redis results are disabled. PostgreSQL owns all job state and checkpoints.
+Workers skip committed named steps and terminal deliveries, with a PostgreSQL
+session lock excluding concurrent execution. A deliberate `JobPaused` releases
+the worker while retaining STARTED; reconciliation selects only PENDING/QUEUED.
+See [JOBS.md](./JOBS.md) and [ADR-004](./adr/ADR-004-async-job-execution.md) for
+the at-least-once effect boundary and the work reserved for #21/#22.
+
+### Target progress flow (#21)
+
+The following durable event/SSE flow is the design for the streaming ticket;
+Ticket #20 implements submission, execution and polling only.
 
 ```text
 Client

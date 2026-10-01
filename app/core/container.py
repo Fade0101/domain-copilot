@@ -16,9 +16,15 @@ depend on ``core`` to "avoid" this import.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
+from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
+
+from celery import Celery
+from sqlalchemy.engine import Engine
 
 from app.application.auth.authorization import AuthorizationService
 from app.application.auth.seeding import (
@@ -31,12 +37,18 @@ from app.application.auth.use_cases import (
 )
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.errors import ConfigurationError, ProviderConfigurationError
+from app.application.jobs.diagnostic import DiagnosticJobHandler
+from app.application.jobs.registry import JobHandlerRegistry
+from app.application.jobs.runner import JobRunner
+from app.application.jobs.service import JobService
 from app.application.ports.audit import IAuditSink
 from app.application.ports.embeddings import IEmbeddingProvider
+from app.application.ports.jobs import IJobHandler, IJobStore
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.ownership import IOwnershipQuery
 from app.application.ports.passwords import IPasswordHasher
 from app.application.ports.prompts import IPromptProvider
+from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
@@ -59,9 +71,15 @@ from app.infrastructure.persistence.in_memory.ownership_query import (
 from app.infrastructure.persistence.in_memory.user_repository import (
     InMemoryUserRepository,
 )
+from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
+from app.infrastructure.queue.celery_queue import (
+    CeleryJobQueue,
+    create_celery_app,
+    register_job_task,
+)
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
 
@@ -229,6 +247,7 @@ class Container:
         )
         self._audit_sink: IAuditSink = LoggingAuditSink()
         self._authorization_service = AuthorizationService(ownership_query=self._ownership_query)
+        self._jobs: JobRuntime | None = None
 
     @property
     def llm_provider(self) -> ILLMProvider:
@@ -261,8 +280,18 @@ class Container:
 
     async def dispose(self) -> None:
         """Release process-wide resources. Called from the application lifespan."""
+        if self._jobs is not None:
+            await self._jobs.close()
+            self._jobs = None
         if self._database is not None:
             await self._database.dispose()
+
+    @property
+    def job_service(self) -> JobService:
+        """Build the durable queue on first use; never substitute in-memory jobs."""
+        if self._jobs is None:
+            self._jobs = build_job_runtime(self.settings)
+        return self._jobs.service
 
     @property
     def password_hasher(self) -> IPasswordHasher:
@@ -354,3 +383,58 @@ class Container:
 def get_container() -> Container:
     """Return the process-wide :class:`Container` singleton."""
     return Container(settings=get_settings())
+
+
+@dataclass
+class JobRuntime:
+    """Worker/API wiring, built without loading LLM clients or model weights."""
+
+    service: JobService
+    runner: JobRunner
+    celery_app: Celery
+    engine: Engine
+
+    async def close(self) -> None:
+        self.celery_app.close()
+        await asyncio.to_thread(self.engine.dispose)
+
+
+def build_job_runtime(
+    settings: Settings,
+    *,
+    handlers: Iterable[IJobHandler] | None = None,
+) -> JobRuntime:
+    if not settings.database.url:
+        raise ConfigurationError("DATABASE__URL is required for durable jobs.")
+    engine = create_job_engine(settings.database.url)
+    store: IJobStore = PostgresJobStore(engine)
+    registry = JobHandlerRegistry(handlers if handlers is not None else [DiagnosticJobHandler()])
+    clock = SystemClock()
+    celery_app = create_celery_app(
+        settings.queue.broker_url,
+        settings.queue.default_queue,
+        visibility_timeout=settings.queue.visibility_timeout_seconds,
+        connection_timeout=settings.queue.publish_timeout_seconds,
+    )
+    queue: IJobQueue = CeleryJobQueue(celery_app)
+    runner = JobRunner(
+        store,
+        registry,
+        clock,
+        max_checkpoint_bytes=settings.queue.max_checkpoint_bytes,
+    )
+    service = JobService(
+        store,
+        queue,
+        registry,
+        clock,
+        UuidGenerator(),
+        max_payload_bytes=settings.queue.max_payload_bytes,
+    )
+    register_job_task(celery_app, runner)
+    return JobRuntime(service, runner, celery_app, engine)
+
+
+@lru_cache
+def get_job_runtime() -> JobRuntime:
+    return build_job_runtime(get_settings())

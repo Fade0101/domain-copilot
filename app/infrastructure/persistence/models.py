@@ -8,8 +8,8 @@ is to be an exact mirror of the migrated schema, so that:
 * repositories can be written against mapped classes rather than ``text()``.
 
 **The migrations remain the source of truth.** These models were derived from the
-schema that ``addc7d39b90f`` and ``7f2a1c4b9e03`` actually produce, introspected
-from a migrated database -- not the other way round. ``tests/integration/
+schema through ``c83d20a19f04`` (Tickets #5, #6 and #20), introspected from a
+migrated database. ``tests/integration/
 test_orm_models.py`` asserts the two agree by running autogenerate against a
 migrated database and requiring an empty diff, so a model edited out of step with
 the schema fails rather than silently producing a wrong migration.
@@ -142,14 +142,21 @@ class JobModel(Base):
     """An asynchronous job (T7), owned by the user who started it."""
 
     __tablename__ = "jobs"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "state IN ('PENDING', 'QUEUED', 'STARTED', 'COMPLETED', 'FAILED', 'CANCELLED')",
+            name="ck_jobs_lifecycle",
+        ),
+        sa.Index("ix_jobs_dispatch", "state", "created_at", "id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         sa.Uuid(), sa.ForeignKey("users.id"), nullable=False, index=True
     )
     state: Mapped[str] = mapped_column(_JOB_STATE_ENUM, nullable=False)
-    # Unique: this is what makes a repeated submission idempotent rather than
-    # creating a second job.
+    # Uniqueness rejects colliding keys. Ticket #20 uses a fresh job UUID;
+    # canonical-input request deduplication belongs to Ticket #22.
     idempotency_key: Mapped[str] = mapped_column(
         sa.String(255), nullable=False, index=True, unique=True
     )
@@ -160,6 +167,22 @@ class JobModel(Base):
         sa.DateTime(timezone=True), nullable=True
     )
     checkpoint_data: Mapped[dict[str, Any]] = mapped_column(JSONB(), nullable=False)
+    # Nullable for legacy rows, which the runner excludes from reconciliation.
+    operation_type: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+    input_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB(), nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
+    started_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    cancellation_requested: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, server_default=sa.false()
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
