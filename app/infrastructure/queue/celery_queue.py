@@ -24,6 +24,20 @@ def create_celery_app(
     connection_timeout: float,
 ) -> Celery:
     app = Celery("domain_copilot", broker=broker_url)
+    # Celery resolves broker_url as os.environ["CELERY_BROKER_URL"] or the
+    # configured value, and the environment wins. Unlike CELERY_RESULT_BACKEND
+    # below, this cannot be neutralised from here -- Settings.broker_url is a
+    # property that reads the environment on every access. An inherited value
+    # would be silent and bad in a specific way: the API would publish job ids to
+    # a broker the worker never consumes, so jobs sit QUEUED, reconcile()
+    # republishes to the same wrong broker, and settings.queue.broker_url still
+    # reports the configured value. Refuse to start instead.
+    if str(app.conf.broker_url or "").strip() != broker_url.strip():
+        raise ConfigurationError(
+            "CELERY_BROKER_URL is set in the environment and overrides "
+            "QUEUE__BROKER_URL. Unset it and configure the broker through "
+            "QUEUE__BROKER_URL only."
+        )
     try:
         if urlsplit(app.conf.broker_url).scheme not in {"redis", "rediss"}:
             raise ValueError("unsupported transport")
