@@ -4,12 +4,13 @@ The other ownership tests prove the *decision* is server-side. These prove the
 *store* is durable: that ownership is a row in PostgreSQL which outlives the
 process that wrote it, not a dict that dies with it.
 
-Skipped when no database is reachable, so the suite still runs without one. Each
-run creates a scratch database, migrates it to head, and drops it afterwards, so
-nothing touches a developer's own data.
+Each run creates a scratch database, migrates it to head, and drops it afterwards,
+so nothing touches a developer's own data.
 
-``TEST_DATABASE_URL`` overrides the connection; the default matches
-``docker-compose.yml``.
+``TEST_DATABASE_URL`` must point at a disposable PostgreSQL service. These tests
+skip locally when it is absent and **fail in CI**, matching
+``test_orm_models.py``: a durability suite that silently stops running is worse
+than one that is absent, because it still looks like coverage.
 """
 
 from __future__ import annotations
@@ -37,9 +38,10 @@ from app.presentation.api.app import create_app
 from tests.integration.conftest import DEMO_PASSWORD, auth
 from tests.support.fakes import build_user
 
-_ADMIN_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
-)
+#: No default credentials: ``docker-compose.yml`` sets
+#: ``POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}``, so there is no password this
+#: could usefully guess. An unset variable is reported, not silently worked around.
+_ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "")
 _SCRATCH_DB = "dc_ticket5_ownership_test"
 _SIGNING_SECRET = "sql-ownership-test-signing-secret-value"
 
@@ -92,10 +94,18 @@ def _database_reachable() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _database_reachable(),
-    reason=f"no PostgreSQL reachable at {_ADMIN_URL.rsplit('@', 1)[-1]}",
-)
+def _require_database() -> None:
+    """Skip locally, but fail in CI, when no disposable database is reachable.
+
+    A silent skip in CI would mean Ticket 5's durability guarantee stopped being
+    checked while still appearing to be covered.
+    """
+    if _database_reachable():
+        return
+    reason = "Set TEST_DATABASE_URL to a reachable disposable PostgreSQL service"
+    if os.environ.get("CI"):
+        pytest.fail(reason)
+    pytest.skip(reason)
 
 
 @contextmanager
@@ -147,6 +157,7 @@ def _scratch_url() -> str:
 @pytest.fixture(scope="module")
 def migrated_database() -> Iterator[str]:
     """A scratch database migrated to head, dropped on the way out."""
+    _require_database()
     _admin_sql(f'DROP DATABASE IF EXISTS "{_SCRATCH_DB}"')
     _admin_sql(f'CREATE DATABASE "{_SCRATCH_DB}"')
     try:
