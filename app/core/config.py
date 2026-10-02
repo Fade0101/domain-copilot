@@ -50,6 +50,13 @@ class EmbeddingSettings(BaseModel):
     model: str = "all-MiniLM-L6-v2"
     dimensions: int = 384
     batch_size: int = 32
+    # Provenance stamp written alongside every stored vector (#9). Bump this when
+    # the embedding pipeline changes in a way that makes old vectors incomparable
+    # to new ones even though the model name is unchanged (e.g. a different
+    # normalisation or pooling strategy). The retrieval store keys embeddings by
+    # (chunk, model, version), so bumping it lets a re-embedded corpus coexist
+    # with the old one instead of overwriting it mid-reindex.
+    version: str = "1"
 
 
 class QueueSettings(BaseModel):

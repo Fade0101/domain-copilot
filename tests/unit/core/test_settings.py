@@ -27,6 +27,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             "MAX_RETRIES",
             "MAX_ITERATIONS",
             "TOP_K",
+            "VERSION",
         ):
             monkeypatch.delenv(prefix + suffix, raising=False)
 
@@ -78,3 +79,19 @@ def test_get_settings_is_cached() -> None:
     get_settings.cache_clear()
     assert get_settings() is get_settings()
     get_settings.cache_clear()
+
+
+def test_embedding_provenance_version_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The retrieval store stamps every vector with this, and scopes dense search
+    to it, so its default must be stable (#9)."""
+    _isolate(monkeypatch, tmp_path)
+    settings = Settings()
+
+    assert settings.embedding.model == "all-MiniLM-L6-v2"
+    assert settings.embedding.dimensions == 384
+    assert settings.embedding.version == "1"
+
+    monkeypatch.setenv("EMBEDDING__VERSION", "2")
+    assert Settings().embedding.version == "2"

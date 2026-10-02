@@ -142,6 +142,23 @@ class JobQueueUnavailableError(ApplicationError):
     """The broker could not accept a job ID. The PostgreSQL job is still durable."""
 
 
+class RetrievalStoreError(ApplicationError):
+    """Base error for failures in the durable retrieval store (BRD AC-2.1).
+
+    The retrieval adapter translates database and driver exceptions into this
+    family, so no SQLAlchemy/asyncpg exception ever crosses the application
+    boundary -- callers depend on the port, not on the store's technology.
+    """
+
+
+class RetrievalStoreUnavailableError(RetrievalStoreError):
+    """The retrieval store is unreachable (connection/timeout). (Transient)
+
+    Separated from :class:`RetrievalStoreError` because it is retryable: the
+    query was never answered, as opposed to being answered wrongly.
+    """
+
+
 class JobPaused(Exception):
     """A handler checkpointed a deliberate wait; leave the job STARTED and release its worker."""
 

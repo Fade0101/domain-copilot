@@ -14,11 +14,15 @@ from pathlib import Path
 import pytest
 
 from app.application.errors import ProviderConfigurationError
-from app.core.config import LLMSettings, Settings
-from app.core.container import build_llm_provider
+from app.application.ports.retrieval import IRetrievalStore
+from app.core.config import DatabaseSettings, LLMSettings, PromptSettings, Settings
+from app.core.container import Container, build_llm_provider
 from app.infrastructure.llm.fallback import FallbackLLMProvider
 from app.infrastructure.llm.groq_adapter import GroqAdapter
 from app.infrastructure.llm.ollama_adapter import OllamaAdapter
+from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _settings(
@@ -86,3 +90,50 @@ def test_unknown_fallback_provider_fails_safely(
 ) -> None:
     with pytest.raises(ProviderConfigurationError):
         build_llm_provider(_settings(monkeypatch, tmp_path, "groq", "does-not-exist"))
+
+
+def _container(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, url: str | None) -> Container:
+    """Build a container with an explicit database URL and real prompts.
+
+    ``_settings`` chdir's to an empty tmp_path for hermeticity, which would hide
+    the prompts/ directory that the container loads eagerly -- so point at the
+    real one.
+    """
+    settings = _settings(monkeypatch, tmp_path, "groq", None).model_copy(
+        update={
+            "database": DatabaseSettings(url=url),
+            "prompts": PromptSettings(directory=str(_REPO_ROOT / "prompts")),
+        }
+    )
+    return Container(settings=settings)
+
+
+def test_retrieval_store_is_wired_without_a_running_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Adapters are built eagerly, so the store must not connect at build time.
+
+    The URL below points at a port with nothing behind it: construction must
+    still succeed, because SQLAlchemy opens no connection until a statement
+    runs. If this regresses, app startup and the whole unit suite would silently
+    begin to require PostgreSQL.
+    """
+    container = _container(
+        monkeypatch, tmp_path, url="postgresql://nobody:nobody@127.0.0.1:1/nonexistent"
+    )
+
+    assert isinstance(container.retrieval_store, PostgresRetrievalStore)
+    # Exposed through the port, which is what application code depends on.
+    assert isinstance(container.retrieval_store, IRetrievalStore)
+
+
+def test_retrieval_store_is_absent_without_a_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unlike the auth ports there is no in-memory retrieval fallback: dense
+    search needs pgvector and keyword search needs PostgreSQL FTS, so a stand-in
+    would answer queries it cannot serve."""
+    container = _container(monkeypatch, tmp_path, url=None)
+
+    assert container.database is None
+    assert container.retrieval_store is None

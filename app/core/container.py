@@ -50,6 +50,7 @@ from app.application.ports.passwords import IPasswordHasher
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
+from app.application.ports.retrieval import IRetrievalStore
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
 from app.core.config import Settings, get_settings
@@ -73,6 +74,7 @@ from app.infrastructure.persistence.in_memory.user_repository import (
 )
 from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
+from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 from app.infrastructure.queue.celery_queue import (
@@ -249,6 +251,24 @@ class Container:
         self._authorization_service = AuthorizationService(ownership_query=self._ownership_query)
         self._jobs: JobRuntime | None = None
 
+        # --- Retrieval (Ticket #9) ------------------------------------------
+        # Shares the one Database built above rather than opening a second pool.
+        # There is no in-memory retrieval adapter: dense search needs pgvector and
+        # keyword search needs PostgreSQL full-text search, so without a database
+        # this is None and callers must say so rather than silently degrade to a
+        # store that cannot answer. Embedding provenance comes from configuration
+        # here, keeping provider knowledge in the composition root.
+        self._retrieval_store: IRetrievalStore | None = (
+            None
+            if self._database is None
+            else PostgresRetrievalStore(
+                self._database.session_factory,
+                embedding_model=settings.embedding.model,
+                embedding_dim=settings.embedding.dimensions,
+                embedding_version=settings.embedding.version,
+            )
+        )
+
     @property
     def llm_provider(self) -> ILLMProvider:
         return self._llm_provider
@@ -277,6 +297,16 @@ class Container:
     def database(self) -> Database | None:
         """The database connection, or ``None`` when running on in-memory adapters."""
         return self._database
+
+    @property
+    def retrieval_store(self) -> IRetrievalStore | None:
+        """The durable dense + keyword index, or ``None`` without a database.
+
+        Unlike the auth ports there is no in-memory fallback: hybrid retrieval is
+        defined in terms of pgvector and PostgreSQL full-text search, so a
+        stand-in would answer queries it cannot actually serve.
+        """
+        return self._retrieval_store
 
     async def dispose(self) -> None:
         """Release process-wide resources. Called from the application lifespan."""

@@ -14,6 +14,8 @@ from app.application.errors import (
     PromptNotFoundError,
     PromptValidationError,
     ResourceNotFoundError,
+    RetrievalStoreError,
+    RetrievalStoreUnavailableError,
 )
 from app.domain.shared.errors import (
     ApprovalRequiredError,
@@ -50,3 +52,12 @@ def test_domain_error_seeds_are_domain_errors() -> None:
 def test_taxonomies_are_disjoint() -> None:
     assert not issubclass(DomainError, ApplicationError)
     assert not issubclass(ApplicationError, DomainError)
+
+
+def test_retrieval_store_errors_are_application_errors() -> None:
+    """The retrieval adapter must surface typed application errors, never driver
+    exceptions, so callers depend on the port rather than on PostgreSQL."""
+    assert issubclass(RetrievalStoreError, ApplicationError)
+    # Unavailability is a distinguishable, retryable subset.
+    assert issubclass(RetrievalStoreUnavailableError, RetrievalStoreError)
+    assert not issubclass(RetrievalStoreError, RetrievalStoreUnavailableError)

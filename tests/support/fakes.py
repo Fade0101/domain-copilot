@@ -14,6 +14,7 @@ from app.application.ports.audit import AuditEntry, IAuditSink
 from app.application.ports.ownership import IOwnershipQuery
 from app.application.ports.passwords import IPasswordHasher
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
+from app.application.ports.retrieval import ChunkRecord, IRetrievalStore, SearchHit
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import (
     ACCESS_TOKEN_TYPE,
@@ -229,3 +230,69 @@ def build_user(
         hashed_password=hasher.hash(Password(password)),
         created_at=created_at or datetime(2026, 1, 1, tzinfo=UTC),
     )
+
+
+class FakeRetrievalStore(IRetrievalStore):
+    """Pure-Python retrieval store: no database, no vector library.
+
+    Exists to prove the port is usable without any infrastructure, and to let
+    future callers of :class:`IRetrievalStore` be tested without PostgreSQL.
+    Ranking is deliberately crude -- cosine similarity in plain Python and a term
+    count standing in for full-text search -- because the real ranking semantics
+    belong to the PostgreSQL adapter and are covered against real pgvector in
+    ``tests/integration/test_retrieval_store.py``.
+    """
+
+    def __init__(self, document_names: dict[uuid.UUID, str] | None = None) -> None:
+        self.records: dict[tuple[uuid.UUID, str, str], ChunkRecord] = {}
+        self.document_names = document_names or {}
+
+    async def upsert_chunks(self, records: list[ChunkRecord]) -> None:
+        for record in records:
+            # Same provenance key as the real store's uniqueness constraint, so
+            # the fake is idempotent in the same way.
+            key = (record.chunk_id, record.embedding_model, record.embedding_version)
+            self.records[key] = record
+
+    def _hit(self, record: ChunkRecord, score: float, *, dense: bool) -> SearchHit:
+        return SearchHit(
+            document_id=record.document_id,
+            chunk_id=record.chunk_id,
+            document_name=self.document_names.get(record.document_id, "unknown"),
+            section=record.section,
+            page=record.page,
+            snippet=record.text,
+            score=score,
+            embedding_model=record.embedding_model if dense else None,
+            embedding_dim=record.embedding_dim if dense else None,
+            embedding_version=record.embedding_version if dense else None,
+        )
+
+    async def dense_search(self, embedding: list[float], *, top_k: int) -> list[SearchHit]:
+        scored = [
+            (_cosine_similarity(embedding, record.embedding), record)
+            for record in self.records.values()
+        ]
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [self._hit(record, score, dense=True) for score, record in scored[:top_k]]
+
+    async def keyword_search(self, query: str, *, top_k: int) -> list[SearchHit]:
+        terms = [term for term in query.lower().split() if term]
+        scored: list[tuple[float, ChunkRecord]] = []
+        for record in self.records.values():
+            lowered = record.text.lower()
+            matches = sum(lowered.count(term) for term in terms)
+            if matches:
+                scored.append((float(matches), record))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [self._hit(record, score, dense=False) for score, record in scored[:top_k]]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    """Cosine similarity without numpy, matching what pgvector's ``<=>`` implies."""
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = sum(a * a for a in left) ** 0.5
+    right_norm = sum(b * b for b in right) ** 0.5
+    if not left_norm or not right_norm:
+        return 0.0
+    return dot / (left_norm * right_norm)

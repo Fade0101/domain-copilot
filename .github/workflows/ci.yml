@@ -58,6 +58,21 @@ jobs:
         run: |
           lint-imports
 
+      # Run twice: the first call builds the schema from an empty database,
+      # proving the migration chain is reproducible from clean; the second proves
+      # it is a no-op on an up-to-date database. `alembic heads` then asserts the
+      # chain is linear -- Ticket #9 branched off the same parent as #20, so a
+      # second head is the specific failure this guards against. DATABASE__URL is
+      # scoped to this step so it cannot perturb tests that deliberately run
+      # without a database.
+      - name: Database migrations
+        env:
+          DATABASE__URL: postgresql://t20@127.0.0.1:5432/t20
+        run: |
+          alembic upgrade head
+          alembic upgrade head
+          alembic heads
+
       - name: Run Tests
         run: |
           pytest
