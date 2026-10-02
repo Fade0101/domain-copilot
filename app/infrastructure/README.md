@@ -20,5 +20,7 @@ classes in this directory.
 | Path | Port implemented | Notes |
 | --- | --- | --- |
 | `persistence/in_memory/document_repository.py` | `IDocumentRepository` | Interim non-durable store; replaced by a SQLAlchemy/pgvector adapter in ticket #6. |
+| `persistence/sql/tables.py` | — | SQLAlchemy Core tables mirroring the Alembic schema. Not used for DDL. |
+| `persistence/sql/retrieval_store.py` | `IRetrievalStore` | pgvector cosine dense search + PostgreSQL `tsvector`/`ts_rank` keyword search (ADR-003). |
 | `system/clock.py` | `IClock` | Wraps `datetime.now(UTC)`. |
 | `system/identifiers.py` | `IIdGenerator` | Wraps `uuid.uuid4()`. |
