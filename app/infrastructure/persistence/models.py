@@ -8,7 +8,7 @@ is to be an exact mirror of the migrated schema, so that:
 * repositories can be written against mapped classes rather than ``text()``.
 
 **The migrations remain the source of truth.** These models were derived from the
-schema through ``c83d20a19f04`` (Tickets #5, #6 and #20), introspected from a
+schema through ``4c1e9a7d52b8`` (Tickets #5, #6, #20 and #9), introspected from a
 migrated database. ``tests/integration/
 test_orm_models.py`` asserts the two agree by running autogenerate against a
 migrated database and requiring an empty diff, so a model edited out of step with
@@ -38,13 +38,15 @@ from typing import Any
 
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 #: Dimensionality of the stored embeddings, matching the migration's
-#: ``Vector(1536)``. The configured embedding model must agree with this; changing
-#: it requires a migration, not just a settings edit.
-EMBEDDING_DIMENSIONS = 1536
+#: ``Vector(384)``. 384 is what ``all-MiniLM-L6-v2`` -- the configured embedding
+#: provider -- emits; the 1536 that stood here was sized for an OpenAI model and
+#: could never have held a valid vector. ``settings.embedding.dimensions`` must
+#: agree with this; changing it requires a migration, not just a settings edit.
+EMBEDDING_DIMENSIONS = 384
 
 _ROLE_ENUM = sa.Enum("analyst", "reviewer", "admin", name="role_enum", native_enum=False)
 _DOCUMENT_STATUS_ENUM = sa.Enum(
@@ -120,9 +122,21 @@ class DocumentModel(Base):
 
 
 class ChunkModel(Base):
-    """A retrievable passage of a document plus its embedding (FR-2)."""
+    """A retrievable passage of a document, with citation metadata and its FTS vector.
+
+    The embedding does **not** live here. Revision ``4c1e9a7d52b8`` moved it to
+    :class:`ChunkEmbeddingModel` so the corpus can carry more than one embedding
+    provenance at a time (FR-2, BRD AC-2.5, SDD A.8.2).
+    """
 
     __tablename__ = "chunks"
+    __table_args__ = (
+        # GIN over the generated tsvector: the sparse half of hybrid retrieval.
+        sa.Index("ix_chunks_content_tsv", "content_tsv", postgresql_using="gin"),
+        # Every citation join filters chunks by document, and a foreign key alone
+        # does not create an index in PostgreSQL.
+        sa.Index("ix_chunks_document_id", "document_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -133,9 +147,70 @@ class ChunkModel(Base):
         nullable=False,
     )
     text: Mapped[str] = mapped_column(sa.Text(), nullable=False)
-    # Nullable: a chunk is written before it is embedded.
-    embedding: Mapped[Any | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB(), nullable=False)
+    # Citation metadata (BRD AC-2.5, SDD A.8.2). Nullable because not every source
+    # document has sections or pages -- a flat text file has neither.
+    section: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    page: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    token_count: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    # Stored generated column maintained by PostgreSQL. Declaring the Computed()
+    # here is what keeps SQLAlchemy from ever naming it in INSERT/UPDATE --
+    # writing to a generated column is an error. The two-argument
+    # ``to_tsvector(regconfig, text)`` is IMMUTABLE, which a generated column
+    # requires; it must match the configuration the adapter queries with.
+    content_tsv: Mapped[Any | None] = mapped_column(
+        TSVECTOR(),
+        sa.Computed("to_tsvector('english', text)", persisted=True),
+        nullable=True,
+    )
+
+
+class ChunkEmbeddingModel(Base):
+    """One chunk's vector under one embedding provenance (#9, SDD A.8.2).
+
+    Keyed by chunk *and* provenance rather than by chunk alone, so the corpus can
+    be re-embedded under a new model or version without destroying the vectors the
+    live index is still serving.
+    """
+
+    __tablename__ = "chunk_embeddings"
+    __table_args__ = (
+        # The adapter's ``ON CONFLICT ON CONSTRAINT`` targets this by name, which
+        # is what makes re-indexing idempotent.
+        sa.UniqueConstraint(
+            "chunk_id",
+            "embedding_model",
+            "embedding_version",
+            name="uq_chunk_embedding_provenance",
+        ),
+        # HNSW rather than IVFFlat: IVFFlat must be built against populated data to
+        # train its centroids, making index quality depend on when the migration
+        # ran. HNSW builds incrementally and is reproducible from empty.
+        # vector_cosine_ops matches the cosine distance the adapter orders by; a
+        # different opclass would simply leave the index unused.
+        sa.Index(
+            "ix_chunk_embeddings_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("chunks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    embedding: Mapped[Any] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
+    # Provenance is stored per row rather than inferred from configuration, so a
+    # vector written under an older model stays self-describing after a re-embed.
+    embedding_model: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    embedding_dim: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    embedding_version: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
 
 
 class JobModel(Base):
