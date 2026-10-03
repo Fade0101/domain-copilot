@@ -10,7 +10,6 @@ docs/ISSUE-AUDIT.md
 
 
 !.claude/
-!.agents/
 .claude/settings.local.json
 .venv/
 # Python
@@ -27,6 +26,8 @@ __pycache__/
 .claude/settings.local.json
 
 # Local-only working files.
+/.agents/
+/.tasks/
 docs/ISSUE-AUDIT.md
 .tmp-issue-bodies/
 
