@@ -22,6 +22,7 @@ owned by other tickets (database) without breaking here. Concrete provider
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -73,11 +74,24 @@ class QueueSettings(BaseModel):
 
 
 class RetrievalSettings(BaseModel):
-    """Dense-retrieval tuning (vector store adapter finalized in #9)."""
+    """Hybrid retrieval controls; scores are sigmoid-normalized reranker logits."""
 
-    top_k: int = 5
-    score_threshold: float = 0.0
-    max_context_chunks: int = 12
+    top_k: int = Field(default=5, gt=0, le=20)
+    candidate_k: int = Field(default=20, gt=0, le=100)
+    rrf_k: int = Field(default=60, gt=0, le=1000)
+    score_threshold: float = Field(default=0.5, ge=0, le=1, allow_inf_nan=False)
+    max_context_chunks: int = Field(default=12, gt=0, le=20)
+    max_context_characters: int = Field(default=24_000, gt=0, le=100_000)
+    timeout_seconds: float = Field(default=180, gt=0, le=600, allow_inf_nan=False)
+
+
+class RerankerSettings(BaseModel):
+    """Local BGE execution controls. Model identity/revision are pinned in the adapter."""
+
+    device: Literal["cpu", "cuda"] = "cpu"
+    batch_size: int = Field(default=4, gt=0, le=32)
+    max_length: int = Field(default=1024, ge=128, le=8192)
+    cache_directory: str | None = None
 
 
 class IngestionSettings(BaseModel):
@@ -185,6 +199,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     queue: QueueSettings = Field(default_factory=QueueSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     limits: OrchestrationLimits = Field(default_factory=OrchestrationLimits)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)

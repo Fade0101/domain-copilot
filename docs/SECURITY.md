@@ -6,6 +6,23 @@ Controls are mapped to the application's web/API security, data protection, auth
 
 Evidence, tests, and implementation references will be added as each control is completed.
 
+Ticket #10's synchronous retrieval/Q&A controls are documented in
+[RETRIEVAL.md](RETRIEVAL.md). Both endpoints enforce the existing ask permission;
+queries and evidence remain untrusted user-message data. Generation returns
+only chunk IDs, and the application emits complete indexed excerpts with source
+metadata from PostgreSQL. Missing high-risk evidence, conflicting evidence and
+invalid selections refuse with the exact Ticket #10 response. Provider failures
+use a static 503. These controls do not implement the clinical-note Safety Checker.
+
+The local reranker uses pinned public BGE weights with remote code disabled.
+Inference has bounded batches, context and request deadlines; cancelled callers
+do not create an unbounded model-work queue. Queries, chunk IDs, scores and
+outcomes are recorded through the existing audit sink and trace schema. Only
+synthetic/public non-PII queries and documents are supported by the assessment
+policy. Query text and selected evidence reach the configured #7 chat provider
+for sufficient-evidence asks; tokens and provider keys are excluded from traces.
+No new PII detector/redactor or general tracing administration is claimed.
+
 ---
 
 ## 1. Identity & Access Management

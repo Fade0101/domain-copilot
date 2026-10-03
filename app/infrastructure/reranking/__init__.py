@@ -1,0 +1,1 @@
+"""Local cross-encoder adapters."""

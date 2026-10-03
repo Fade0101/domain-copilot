@@ -228,7 +228,7 @@ class PostgresRetrievalStore(IRetrievalStore):
                 tables.chunk_embeddings.c.embedding_model == self._embedding_model,
                 tables.chunk_embeddings.c.embedding_version == self._embedding_version,
             )
-            .order_by(distance)
+            .order_by(distance, tables.chunks.c.id)
             .limit(top_k)
         )
 
@@ -283,7 +283,7 @@ class PostgresRetrievalStore(IRetrievalStore):
             # `@@` restricts to genuine matches, so a non-matching chunk is never
             # returned with a zero score.
             .where(tables.chunks.c.content_tsv.bool_op("@@")(tsquery))
-            .order_by(rank.desc())
+            .order_by(rank.desc(), tables.chunks.c.id)
             .limit(top_k)
         )
 

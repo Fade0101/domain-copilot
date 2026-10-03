@@ -159,6 +159,10 @@ class RetrievalStoreUnavailableError(RetrievalStoreError):
     """
 
 
+class KnowledgeUnavailableError(ApplicationError):
+    """Retrieval/reranking/generation failed; expose only a static HTTP 503."""
+
+
 class JobPaused(Exception):
     """A handler checkpointed a deliberate wait; leave the job STARTED and release its worker."""
 

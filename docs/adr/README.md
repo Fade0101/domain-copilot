@@ -21,13 +21,14 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 | [ADR-005](./ADR-005-clean-hexagonal-boundary-enforcement.md) | Clean/Hexagonal boundary enforcement | Accepted | #2 |
 | [ADR-006](./ADR-006-configuration-prompts-and-error-model.md) | Configuration, prompts & error model | Accepted | #3 |
 | [ADR-007](./ADR-007-provider-abstraction-and-selection.md) | Provider abstraction & selection | Accepted | #7 |
+| [ADR-008](./ADR-008-hybrid-retrieval-and-grounded-qa.md) | Hybrid retrieval, cross-encoder scores and grounded Q&A | Accepted | #10 |
 
 ## Reserved (not yet written)
 
 ADR-002 is **reserved** for the orchestration decision called out by AR-7 and
 will be written by the ticket that implements it. ADR-001 records ingestion
-chunking and embeddings; Ticket #10 will extend the retrieval strategy when
-fusion/reranking is implemented.
+chunking and embeddings; ADR-008 records the Ticket #10 fusion, reranking and
+grounded-answer strategy.
 
 | ADR | Reserved topic |
 | --- | -------------- |

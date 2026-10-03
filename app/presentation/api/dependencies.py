@@ -19,6 +19,8 @@ from app.application.jobs.service import JobService
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
+from app.application.qa.use_cases import AskUseCase
+from app.application.retrieval.use_cases import HybridRetrievalUseCase
 from app.core.container import Container, get_container
 
 
@@ -64,3 +66,11 @@ def get_llm_provider() -> ILLMProvider:
 def get_embedding_provider() -> IEmbeddingProvider:
     """Provide the embedding provider built by the container (AR-2b)."""
     return get_container().embedding_provider
+
+
+async def get_hybrid_retrieval_use_case() -> HybridRetrievalUseCase:
+    return get_container().hybrid_retrieval_use_case()
+
+
+async def get_ask_use_case() -> AskUseCase:
+    return get_container().ask_use_case()
