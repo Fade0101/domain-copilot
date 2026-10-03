@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,6 +78,24 @@ class RetrievalSettings(BaseModel):
     top_k: int = 5
     score_threshold: float = 0.0
     max_context_chunks: int = 12
+
+
+class IngestionSettings(BaseModel):
+    """Bounded PDF/Markdown ingestion with reproducible token windows."""
+
+    chunk_tokens: int = Field(default=512, ge=16, le=4096)
+    chunk_overlap: int = Field(default=64, ge=0)
+    max_upload_bytes: int = Field(default=10_485_760, gt=0, le=104_857_600)
+    max_pages: int = Field(default=500, gt=0)
+    max_characters: int = Field(default=2_000_000, gt=0)
+    max_chunks: int = Field(default=4096, gt=0)
+    stage_timeout_seconds: float = Field(default=600, gt=0)
+
+    @model_validator(mode="after")
+    def validate_overlap(self) -> IngestionSettings:
+        if self.chunk_overlap >= self.chunk_tokens:
+            raise ValueError("ingestion.chunk_overlap must be smaller than chunk_tokens")
+        return self
 
 
 class OrchestrationLimits(BaseModel):
@@ -167,6 +185,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     queue: QueueSettings = Field(default_factory=QueueSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     limits: OrchestrationLimits = Field(default_factory=OrchestrationLimits)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     prompts: PromptSettings = Field(default_factory=PromptSettings)

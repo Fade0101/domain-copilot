@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 COPY requirements.txt ./
@@ -11,10 +12,12 @@ RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
     && pip install -r requirements.txt
 
 RUN groupadd --system copilot && useradd --system --gid copilot --home-dir /app copilot
+RUN mkdir -p /app/.cache/huggingface && chown -R copilot:copilot /app/.cache
 COPY --chown=copilot:copilot app ./app
 COPY --chown=copilot:copilot migrations ./migrations
 COPY --chown=copilot:copilot prompts ./prompts
 COPY --chown=copilot:copilot alembic.ini ./
+COPY --chown=copilot:copilot scripts/ingest_documents.py ./scripts/ingest_documents.py
 USER copilot
 
 CMD ["celery", "-A", "app.core.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]

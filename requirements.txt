@@ -8,6 +8,10 @@ alembic>=1.13.1
 psycopg[binary]>=3.1.18
 pgvector>=0.2.5
 
+# Document extraction (PDF + CommonMark; no source links are fetched).
+pypdf==6.19.0
+markdown-it-py==4.2.0
+
 # Async Tasks & Queue
 celery>=5.3.6
 redis>=5.0.3

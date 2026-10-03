@@ -13,6 +13,7 @@ from app.application.auth.use_cases import (
     AuthenticateUserUseCase,
     ResolvePrincipalUseCase,
 )
+from app.application.documents.ingestion_service import IngestionService
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.jobs.service import JobService
 from app.application.ports.embeddings import IEmbeddingProvider
@@ -29,6 +30,10 @@ def get_app_container() -> Container:
 async def get_job_service() -> JobService:
     """Resolve on the API event loop so lazy runtime construction is serialized."""
     return get_container().job_service
+
+
+async def get_ingestion_service() -> IngestionService:
+    return get_container().ingestion_service
 
 
 def get_register_document_use_case() -> RegisterDocumentUseCase:

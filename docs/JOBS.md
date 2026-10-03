@@ -1,8 +1,9 @@
 # Async Jobs — Ticket 20
 
 Celery workers consume UUIDs from Redis. PostgreSQL stores job ownership, input,
-lifecycle, checkpoints, result and error. The implementation is shared by future
-ingestion (#8), retrieval evaluation (#12) and workflow (#17) handlers.
+lifecycle, checkpoints, result and error. The implementation runs the real
+[document ingestion handler](./INGESTION.md) (#8) and provides the runner for
+retrieval evaluation (#12) and workflow (#17).
 
 ## Run with Docker Compose
 
@@ -21,14 +22,16 @@ Replace the placeholder locally. Never commit credentials. Generate a random
 value with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
 ```bash
-docker compose --profile jobs up --build -d
-docker compose --profile jobs ps
-docker compose --profile jobs logs worker
+docker compose up --build -d
+docker compose ps
+docker compose logs worker
 ```
 
-The profile starts PostgreSQL and Redis, runs `alembic upgrade head`, then starts
-the API and a separate Celery worker. The image runs as an unprivileged user and
-installs the CPU version of PyTorch for local embeddings. The API is available at
+The default stack starts PostgreSQL and Redis, runs `alembic upgrade head`, then
+starts the API and a separate Celery worker. No `jobs` profile is required.
+`docker compose run --rm --build seed` ingests synthetic PDF/Markdown examples
+through the same queue; see [INGESTION.md](./INGESTION.md). The image runs as an
+unprivileged user and installs the CPU version of PyTorch for local embeddings. The API is available at
 `http://localhost:8000/docs`; database and broker ports bind to loopback only.
 The API and worker use the same database and queue settings. In development,
 the configured demo password seeds `admin@example.com`, `reviewer@example.com`
@@ -80,9 +83,12 @@ not part of the public response. Ticket #5's `resource_id`, `resource_type` and
 
 The generic submission endpoint requires `MANAGE_ALL_JOBS` (admin). A caller
 cannot set its owner, role or executable code in the request. Polling requires
-ownership or the documented admin grant. Analyst/reviewer feature routes in
-#8/#12/#17 will apply their own permissions before calling `JobService.submit`.
-Registering a handler does not bypass domain authorization or approval gates.
+ownership or the documented admin grant. The ingestion upload route applies
+`INGEST_DOCUMENTS` (admin), commits the source/document/job together, and then
+calls `JobService.dispatch`. Feature routes in #12/#17 must similarly apply
+their own permissions. Registering a handler does not bypass domain
+authorization or approval gates. An extra generic `document.ingest` job cannot
+run against a document unless it is that document's attached ingestion attempt.
 
 Unknown operations and invalid/oversized JSON return 422; missing credentials
 return 401; denied access returns 403; missing jobs return 404. A job-store failure
@@ -103,10 +109,18 @@ Implement `IJobHandler` from
   `correlation_id` and a copy of the input `payload`.
 
 The shipped [diagnostic handler](../app/application/jobs/diagnostic.py) is a
-minimal working example. Register production handlers in
+minimal working example; the
+[ingestion handler](../app/application/documents/ingestion_handler.py) shows
+stage artifacts and resumable embedding/index batches. Register handlers in
 [`build_job_runtime`](../app/core/container.py), which owns construction and
 dependency injection. Deploy the same registry to producers and workers. Tests
 can pass an explicit `handlers` iterable to that factory.
+
+`JobService.prepare(...)` validates and returns an unpersisted PENDING job for a
+domain transaction. Ingestion commits it together with the document/source using
+the shared ORM/job insert mapping, then calls `dispatch(job.id)` after commit.
+`submit(...)` remains the convenience method for standalone job creation. Never
+publish a merely prepared job before its transaction commits.
 
 Await steps sequentially and give each a unique, stable name, such as
 `parse-document-v1:<document-id>`. A completed step returns its saved JSON object
@@ -119,8 +133,10 @@ limits are 64 KiB input and 1 MiB total checkpoint/result data, configurable via
 The effect and checkpoint are two separate operations. If the process dies
 after an effect but before its checkpoint commits, that action can run again.
 Use domain idempotency or a transaction for such effects. Ticket #22 owns
-canonical-input request deduplication; the current `idempotency_key` stores a
-fresh job UUID and does not deduplicate submissions.
+canonical-input request deduplication; the generic `idempotency_key` stores a
+fresh job UUID and does not deduplicate submissions. Ticket #8 separately
+deduplicates immutable document sources and reuses committed stage artifacts.
+That domain rule does not make arbitrary `/jobs` submissions idempotent.
 
 Raise `JobPaused` only after persisting an intentional wait. It releases the
 worker and leaves the logical job STARTED; it does not introduce a workflow
@@ -141,7 +157,9 @@ PENDING → QUEUED → STARTED → COMPLETED | FAILED | CANCELLED
 
 The database rejects illegal transitions through the store contract. Progress,
 approval waits and retry delays are not lifecycle states. Failed/terminal jobs
-cannot be reopened in #20; the retry policy and endpoints belong to #22.
+cannot be reopened in #20; the general retry policy and endpoints belong to #22.
+Re-uploading a failed/cancelled ingestion creates a new job for the same source
+and retains the old terminal job; it does not reverse a lifecycle transition.
 
 | Persisted state | Recovery operation |
 | --- | --- |
@@ -156,7 +174,7 @@ python -m app.core.jobs_cli reconcile --limit 100
 python -m app.core.jobs_cli resume <UUID>
 ```
 
-For Compose, run `docker compose --profile jobs exec worker` followed by the
+For Compose, run `docker compose exec worker` followed by the
 same Python command. Reconciliation processes at most 100 rows by default
 (maximum 1000); repeat as workers drain those rows. It can publish duplicates.
 The runner skips terminal jobs and excludes concurrent execution using a
@@ -192,5 +210,7 @@ repeating committed effects, safe failures, intentional pauses, execution locks,
 illegal transitions, and migration downgrade/reapply.
 
 The ADR is [ADR-004](./adr/ADR-004-async-job-execution.md). SSE/cancel transport
-(#21), idempotency/recovery policy (#22) and per-domain handlers (#8/#12/#17)
-remain separate deliverables.
+(#21), general idempotency/recovery policy (#22), evaluation (#12) and workflow
+(#17) remain separate deliverables. Ingestion (#8) is implemented on this runner;
+its API, durability tests and real-model Docker smoke are in
+[INGESTION.md](./INGESTION.md).

@@ -17,6 +17,7 @@ the boundary as plain ``list[float]``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -44,6 +45,8 @@ class ChunkRecord:
     section: str | None
     page: int | None
     token_count: int | None
+    document_version: int = 1
+    ingested_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +73,8 @@ class SearchHit:
     embedding_model: str | None
     embedding_dim: int | None
     embedding_version: str | None
+    document_version: int = 1
+    ingested_at: datetime | None = None
 
 
 @runtime_checkable

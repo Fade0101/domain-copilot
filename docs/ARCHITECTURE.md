@@ -94,16 +94,17 @@ InMemoryDocumentRepository  (adapter)                app/infrastructure/persiste
 
 Registration is **idempotent by `content_hash`**: a new hash creates and persists
 a `Document` (HTTP `201`); an existing hash returns the existing document without
-creating a duplicate or overwriting its metadata (HTTP `200`). The in-memory
-adapter is interim; a SQLAlchemy/pgvector adapter replaces it behind the same
-port in a later ticket.
+creating a duplicate or overwriting its metadata (HTTP `200`). This registration
+slice remains in memory. Durable ingestion is the separate
+`POST /api/v1/documents/ingest` route implemented in Ticket #8 (§6); metadata
+registration does not enqueue or index a document.
 
 ### 1.4 Configuration (AR-4)
 
 Configuration is externalised via `pydantic-settings` in
 [`app/core/config.py`](../app/core/config.py) — the only place pydantic-settings
 appears (an edge concern). `Settings` composes nested groups (`llm`, `embedding`,
-`queue`, `database`, `auth`, `retrieval`, `limits`, `retry`, `prompts`) populated with
+`queue`, `database`, `auth`, `retrieval`, `ingestion`, `limits`, `retry`, `prompts`) populated with
 the `__` nested delimiter, so `LLM__MODEL` sets `settings.llm.model`. Jobs require
 `DATABASE__URL`; production also requires the configured JWT secret. **Secrets never live
 in code or git (C6):** API keys are `SecretStr | None = None`, read from the
@@ -241,10 +242,13 @@ For Part B, the system uses a single PostgreSQL deployment with logically separa
 
 Ticket #6's declarative mappings live in
 [`app/infrastructure/persistence/models.py`](../app/infrastructure/persistence/models.py).
-They mirror all eleven tables created by migrations through `c83d20a19f04`,
-including Ticket #5 ownership/session fields and Ticket #20 job execution fields.
-`Base.metadata` is shared by Alembic autogeneration and `PostgresJobStore`, so
-the runner has no separate table declaration that can drift from the ORM.
+They mirror the migrations through `95c7e8a12d40`, including Ticket #5
+ownership/session fields, Ticket #20 job fields, Ticket #9's separate
+`chunk_embeddings` table and Ticket #8's document source/artifact storage.
+`Base.metadata` is shared by Alembic, the job store, retrieval store and ingestion
+store. There is one migration chain and no independent table declarations.
+Ticket #8's additive revision follows `4c1e9a7d52b8` and preserves prior documents,
+chunks, vectors and indexes.
 Ticket #5's user and ownership adapters retain their bound SQL against the same
 schema; ORM objects do not cross application or domain boundaries.
 
@@ -321,7 +325,7 @@ A rejected clinical note is a terminal workflow outcome. The underlying T7 job c
 
 ## 6. RAG Data Flow
 
-### Ingestion
+### Ingestion (Ticket #8, implemented)
 
 ```text
 Document Upload
@@ -347,9 +351,54 @@ Embeddings are generated through the embedding provider abstraction, **not throu
 
 Document metadata and ingestion state are persisted in PostgreSQL.
 
+`POST /api/v1/documents/ingest` authorizes the admin ingestion capability and
+accepts a bounded raw PDF/Markdown body. `IngestionService` computes source
+identity and prepares a T7 job. `PostgresIngestionStore.accept` commits document,
+original bytes and PENDING job together; `JobService.dispatch` then queues it.
+The response is HTTP 202 with job/document polling URLs.
+
+| Concern | Implementation |
+| --- | --- |
+| Source/stage/chunk values and deterministic IDs | `app/domain/documents/ingestion.py` |
+| Ingestion store, extractor and tokenizer ports | `app/application/ports/ingestion.py` |
+| Submission and resumable job handler | `app/application/documents/ingestion_service.py`, `ingestion_handler.py` |
+| Structure-aware windows and complete embedding coverage | `app/application/documents/chunking.py`, `embedding.py` |
+| PDF/CommonMark parsing | `app/infrastructure/ingestion/extractors.py` |
+| Durable bytes, artifacts and progress | `app/infrastructure/persistence/sql/ingestion_store.py` |
+| Dense/keyword indexing | Ticket #9's `IRetrievalStore` / `PostgresRetrievalStore` |
+| HTTP upload and document polling | `app/presentation/api/routes/documents.py` |
+| Synthetic seed and file-upload CLI | `scripts/ingest_documents.py` |
+
+The default windows are 512 tokenizer tokens with 64 overlap within the same
+page/heading hierarchy. The tokenizer port is supplied by the local embedding
+adapter. For a model whose context is smaller, every model-sized subwindow is
+embedded and combined by token weight; no tail is silently truncated. Citation
+records include document version and ingestion timestamp alongside the existing
+document/name/page/section/chunk fields and embedding provenance.
+
+Each stage and embedding/index batch persists a PostgreSQL artifact before its
+T7 checkpoint. Checkpoints contain references rather than source text/vectors.
+Replays reuse artifacts or repeat deterministic index upserts. Duplicate source
+acceptance shares an active/completed job; a failed/cancelled source gets a new
+attempt while retaining completed artifacts and the old terminal job.
+
+The API borrows the existing database pool. Worker async sessions use
+`NullPool` because Celery invokes a separate `asyncio.run` per task. Model loading
+is lazy. The default Compose stack includes migrations, API, worker, PostgreSQL
+and Redis; `docker compose run --rm --build seed` exercises both supported formats.
+
+See [INGESTION.md](./INGESTION.md) for setup, source/version identity, limits and
+recovery, and [ADR-001](./adr/ADR-001-chunking-and-ingestion-embeddings.md) for
+chunking and embedding tradeoffs. SSE/cancel transport remains #21 and generic
+recovery/idempotency policy remains #22.
+
 ---
 
 ### Retrieval
+
+Ticket #9 implements independent dense/keyword search with citation metadata.
+The fusion, reranking and evidence filtering in the following target flow
+remain Ticket #10.
 
 ```text
 User Query
@@ -454,8 +503,9 @@ The reviewer decision and resulting finalization are auditable.
 `POST /api/v1/jobs` authenticates with Ticket #5's JWT/permission dependencies,
 persists PENDING then QUEUED, publishes a UUID, and returns HTTP 202 with its
 polling URL. `GET /api/v1/jobs/{job_id}` enforces PostgreSQL ownership and returns
-state/result/error. Generic submissions require admin permission; per-domain
-routes will authorize their own operations in #8/#12/#17.
+state/result/error. Generic submissions require admin permission. Ticket #8's
+ingestion route applies its own admin capability and commits its source and job
+atomically; future #12/#17 routes must apply their own domain authorization.
 
 | Concern | Implementation |
 | --- | --- |
@@ -477,7 +527,8 @@ the at-least-once effect boundary and the work reserved for #21/#22.
 ### Target progress flow (#21)
 
 The following durable event/SSE flow is the design for the streaming ticket;
-Ticket #20 implements submission, execution and polling only.
+Tickets #20/#8 implement submission, execution and progress polling; they do not
+publish this target event stream.
 
 ```text
 Client

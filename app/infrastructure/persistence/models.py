@@ -8,7 +8,7 @@ is to be an exact mirror of the migrated schema, so that:
 * repositories can be written against mapped classes rather than ``text()``.
 
 **The migrations remain the source of truth.** These models were derived from the
-schema through ``4c1e9a7d52b8`` (Tickets #5, #6, #20 and #9), introspected from a
+schema through ``95c7e8a12d40`` (Tickets #5, #6, #20, #9 and #8), verified against a
 migrated database. ``tests/integration/
 test_orm_models.py`` asserts the two agree by running autogenerate against a
 migrated database and requiring an empty diff, so a model edited out of step with
@@ -107,6 +107,15 @@ class DocumentModel(Base):
     """An ingested source document (FR-1), owned by the user who registered it."""
 
     __tablename__ = "documents"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "user_id",
+            "content_hash",
+            "media_type",
+            "version",
+            name="uq_document_ingestion_source",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), sa.ForeignKey("users.id"), nullable=False)
@@ -116,6 +125,52 @@ class DocumentModel(Base):
     error_message: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     # "metadata" is taken by DeclarativeBase; see the module docstring.
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB(), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    # Nullable source identity keeps pre-ingestion/legacy rows valid on upgrade.
+    content_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    media_type: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    version: Mapped[int] = mapped_column(sa.Integer(), server_default=sa.text("1"), nullable=False)
+    ingestion_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    ingestion_config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False
+    )
+    ingestion_stages: Mapped[dict[str, Any]] = mapped_column(
+        JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False
+    )
+    error_stage: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    ingested_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    chunk_count: Mapped[int] = mapped_column(
+        sa.Integer(), server_default=sa.text("0"), nullable=False
+    )
+
+
+class DocumentSourceModel(Base):
+    """Original uploaded bytes are durable before any worker is dispatched (#8)."""
+
+    __tablename__ = "document_sources"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    source: Mapped[bytes] = mapped_column(sa.LargeBinary(), nullable=False)
+
+
+class IngestionArtifactModel(Base):
+    """Stage outputs and embedding batches; job checkpoints contain only references."""
+
+    __tablename__ = "ingestion_artifacts"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    artifact_key: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB(), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -153,6 +208,12 @@ class ChunkModel(Base):
     section: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     page: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     token_count: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    document_version: Mapped[int] = mapped_column(
+        sa.Integer(), server_default=sa.text("1"), nullable=False
+    )
+    ingested_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
     # Stored generated column maintained by PostgreSQL. Declaring the Computed()
     # here is what keeps SQLAlchemy from ever naming it in INSERT/UPDATE --
     # writing to a generated column is an error. The two-argument

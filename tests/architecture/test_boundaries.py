@@ -40,6 +40,8 @@ _FORBIDDEN_THIRD_PARTY = {
     "jwt",
     "passlib",
     "yaml",
+    "pypdf",
+    "markdown_it",
 }
 
 

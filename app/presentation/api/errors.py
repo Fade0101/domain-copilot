@@ -38,6 +38,7 @@ from app.application.errors import (
     JobStoreError,
     ResourceNotFoundError,
     ResourceOwnershipError,
+    UploadTooLargeError,
 )
 from app.domain.shared.errors import (
     DomainError,
@@ -64,6 +65,10 @@ def _body(detail: str, code: str) -> dict[str, str]:
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register every domain/application error handler plus the fail-safe catch-all."""
+
+    @app.exception_handler(UploadTooLargeError)
+    async def _handle_upload_size(_: Request, exc: UploadTooLargeError) -> JSONResponse:
+        return JSONResponse(status_code=413, content=_body(str(exc), "UPLOAD_TOO_LARGE"))
 
     @app.exception_handler(InvariantViolationError)
     async def _handle_invariant(_: Request, exc: InvariantViolationError) -> JSONResponse:

@@ -8,5 +8,7 @@
 !migrations/**
 !prompts/
 !prompts/**
+!scripts/
+!scripts/ingest_documents.py
 **/__pycache__/
 **/*.pyc

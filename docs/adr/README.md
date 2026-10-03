@@ -15,6 +15,7 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 
 | ADR | Title | Status | Ticket |
 | --- | ----- | ------ | ------ |
+| [ADR-001](./ADR-001-chunking-and-ingestion-embeddings.md) | Structure-aware chunking and ingestion embeddings | Accepted | #8 |
 | [ADR-003](./ADR-003-vector-store-and-keyword-index.md) | Vector store & keyword index (pgvector, HNSW, FTS) | Accepted | #9 |
 | [ADR-004](./ADR-004-async-job-execution.md) | Durable async jobs, Celery/Redis and checkpoint resume | Accepted | #20 |
 | [ADR-005](./ADR-005-clean-hexagonal-boundary-enforcement.md) | Clean/Hexagonal boundary enforcement | Accepted | #2 |
@@ -23,13 +24,13 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 
 ## Reserved (not yet written)
 
-ADR-001–002 are **reserved** for the remaining major decisions called out by AR-7 and are
-written by the ticket that actually makes each decision — they are intentionally
-*not* created here:
+ADR-002 is **reserved** for the orchestration decision called out by AR-7 and
+will be written by the ticket that implements it. ADR-001 records ingestion
+chunking and embeddings; Ticket #10 will extend the retrieval strategy when
+fusion/reranking is implemented.
 
 | ADR | Reserved topic |
 | --- | -------------- |
-| ADR-001 | Chunking & hybrid retrieval strategy |
 | ADR-002 | Multi-agent orchestration & approval gate |
 
 Creating a reserved ADR prematurely (before its decision is made) would record a

@@ -71,6 +71,7 @@ jobs:
         run: |
           alembic upgrade head
           alembic upgrade head
+          alembic check
           alembic heads
 
       - name: Run Tests

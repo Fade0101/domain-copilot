@@ -266,6 +266,8 @@ class FakeRetrievalStore(IRetrievalStore):
             embedding_model=record.embedding_model if dense else None,
             embedding_dim=record.embedding_dim if dense else None,
             embedding_version=record.embedding_version if dense else None,
+            document_version=record.document_version,
+            ingested_at=record.ingested_at,
         )
 
     async def dense_search(self, embedding: list[float], *, top_k: int) -> list[SearchHit]:

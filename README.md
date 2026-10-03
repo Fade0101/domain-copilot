@@ -72,22 +72,35 @@ new migration. Schema agreement and integration with Tickets #5/#20 are tested
 in `tests/integration/test_orm_models.py`; set `TEST_DATABASE_URL` to an admin
 connection on a disposable PostgreSQL service to run its database tests.
 
-## Async jobs
+## Run with Docker
 
-Ticket #20 supplies a real Celery/Redis worker with PostgreSQL-owned job state,
-checkpoint resume, and authenticated HTTP 202 submission/polling. Copy
-`.env.example` to `.env`, choose a local `POSTGRES_PASSWORD`, configure
-`DATABASE__URL` using host `postgres`, and supply `AUTH__SECRET_KEY` and a
-development `AUTH__DEMO_PASSWORD`. Then:
+Tickets #8/#20 provide PDF/Markdown ingestion on a real Celery/Redis worker,
+with PostgreSQL-owned source files, stage progress, checkpoints and job results.
+Copy `.env.example` to `.env`, choose a local `POSTGRES_PASSWORD`, configure
+`DATABASE__URL` using host `postgres`, and supply `AUTH__SECRET_KEY` (32+
+characters) and a development `AUTH__DEMO_PASSWORD` (12+ characters). Then:
 
 ```bash
-docker compose --profile jobs up --build -d
+docker compose up --build -d
+docker compose run --rm --build seed
 ```
 
-Open `http://localhost:8000/docs`, authenticate as the configured admin, and
-submit `{"operation_type":"diagnostic","payload":{}}` to `POST /api/v1/jobs`.
-Poll the returned `status_url`. See [Async Jobs](docs/JOBS.md) for native setup,
-handler registration, real-service testing and explicit recovery commands.
+The default stack starts migrations, API, worker, PostgreSQL/pgvector and Redis.
+The seed command ingests synthetic PDF and Markdown examples and waits for them
+to become searchable. Repeating it reuses the same document/job IDs and chunks.
+The first ingestion downloads the public local embedding model; its cache is
+retained in a Docker volume. No chat API key is needed for ingestion.
+
+Open `http://localhost:8000/docs`, authenticate as the configured admin, and use
+`POST /api/v1/documents/ingest` with raw file bytes. It returns HTTP 202 and job/
+document polling URLs. See [Document Ingestion](docs/INGESTION.md) for upload
+examples, 512/64 chunking, citation metadata, limits and retry/resume behavior.
+
+The generic job smoke operation is
+`{"operation_type":"diagnostic","payload":{}}` at `POST /api/v1/jobs`.
+[Async Jobs](docs/JOBS.md) documents native setup, handler registration and
+explicit recovery commands. SSE/cancel transport (#21), general recovery policy
+(#22), retrieval/fusion (#10) and corpus content (#11) remain separate work.
 
 ## Documentation
 
@@ -97,3 +110,4 @@ handler registration, real-service testing and explicit recovery commands.
 - [ADRs](docs/adr/) — architecture decision records
 - [Security](docs/SECURITY.md) · [Evaluation](docs/EVALUATION.md)
 - [Async Jobs](docs/JOBS.md) — startup, API, checkpoint and recovery contracts
+- [Document Ingestion](docs/INGESTION.md) — PDF/Markdown uploads, synthetic seed, citations and recovery
