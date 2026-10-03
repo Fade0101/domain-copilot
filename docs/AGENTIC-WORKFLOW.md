@@ -7,6 +7,11 @@ Copilot project. AI is not "used to write code" — it is a **governed
 participant** in an engineering system where a human is responsible for
 architecture decisions, acceptance, and merges.
 
+`.agents/` and `.tasks/` are optional local directories excluded from Git. A
+fresh clone does not include them. The local conventions below supplement the
+versioned [architecture](./ARCHITECTURE.md) and [security](./SECURITY.md)
+documentation; product prompts, quality gates, and tests remain in the repository.
+
 ---
 
 ## 1. Overview
@@ -16,20 +21,20 @@ configuration, each described in detail below:
 
 | # | Category | Location | Purpose |
 |---|----------|----------|---------|
-| 1 | Project instruction files | `.agents/rules/` | Architecture and security rules the AI must follow |
-| 2 | Versioned prompt assets / skills | `.agents/skills/`, `prompts/` | Reusable, scoped task definitions and product prompt artifacts |
-| 3 | Scoped sub-agents | `.agents/skills/{security-reviewer,test-writer,doc-writer}/` | Role-specific agents with explicit permissions and forbidden actions |
+| 1 | Project instruction files | `.agents/rules/` (local, ignored) | Architecture and security rules the AI must follow |
+| 2 | Prompt assets / skills | `.agents/skills/` (local, ignored), `prompts/` (versioned) | Reusable, scoped task definitions and product prompt artifacts |
+| 3 | Scoped sub-agents | `.agents/skills/{security-reviewer,test-writer,doc-writer}/` (local, ignored) | Role-specific agents with explicit permissions and forbidden actions |
 | 4 | Hooks enforcing quality gates | `scripts/pre-commit-check.py`, `scripts/install-hooks.py` | Automated checks before every commit |
 | 5 | Custom commands | `scripts/validate-prompts.py`, `scripts/check-boundaries.py` | Repeatable operations for common tasks |
 | 6 | Versioned prompt library | `prompts/*.yaml` | Product prompts as versioned, schema-validated artifacts |
-| 7 | Spec-Driven Development + MCP (SpecPilot) | `.tasks/`, spec-pilot Claude Code plugin | SpecPilot orchestrates planning/implementation; MCP servers ship with the installed plugin |
+| 7 | Spec-Driven Development + MCP (SpecPilot) | `.tasks/` (local, ignored), spec-pilot Claude Code plugin | SpecPilot orchestrates planning/implementation; MCP servers ship with the installed plugin |
 
 ---
 
 ## 2. Project Instruction Files (Category 1)
 
-**Location:** [`.agents/rules/architecture.md`](../.agents/rules/architecture.md),
-[`.agents/rules/security.md`](../.agents/rules/security.md)
+**Local locations:** `.agents/rules/architecture.md`,
+`.agents/rules/security.md` (ignored; supplied by the developer).
 
 These files encode the project's non-negotiable rules so that any AI agent
 working in the repository respects the architectural boundaries automatically.
@@ -75,13 +80,13 @@ hook.
 
 ## 3. Scoped Sub-Agents (Category 2 & 3)
 
-**Location:** `.agents/skills/`
+**Local location:** `.agents/skills/` (ignored; supplied by the developer).
 
 Each sub-agent has a `SKILL.md` file defining its **role**, **responsibilities**,
 **forbidden actions**, and **required context files**. This implements the
 principle of least privilege for AI development participants.
 
-### Security Reviewer ([`.agents/skills/security-reviewer/SKILL.md`](../.agents/skills/security-reviewer/SKILL.md))
+### Security Reviewer (`.agents/skills/security-reviewer/SKILL.md`)
 
 | Attribute | Value |
 |-----------|-------|
@@ -101,7 +106,7 @@ fix was to split error handlers by fault type in `app/presentation/api/errors.py
 — client faults carry contextual messages, server faults carry static safe
 messages.
 
-### Test Writer ([`.agents/skills/test-writer/SKILL.md`](../.agents/skills/test-writer/SKILL.md))
+### Test Writer (`.agents/skills/test-writer/SKILL.md`)
 
 | Attribute | Value |
 |-----------|-------|
@@ -120,7 +125,7 @@ error model and configuration surface (`test_errors.py`, `test_settings.py`,
 project conventions (fakes over mocks, one behavior per test). The human
 reviewed and adjusted edge case expectations before committing.
 
-### Documentation Writer ([`.agents/skills/doc-writer/SKILL.md`](../.agents/skills/doc-writer/SKILL.md))
+### Documentation Writer (`.agents/skills/doc-writer/SKILL.md`)
 
 | Attribute | Value |
 |-----------|-------|
@@ -294,7 +299,8 @@ template: |                # The actual prompt text with {variable} placeholders
 
 ## 7. Spec-Driven Development & MCP (SpecPilot)
 
-**Committed artifact:** [`.tasks/`](../.tasks/) &nbsp;·&nbsp;
+**Local artifacts (ignored):** `.tasks/`.
+
 **Tooling (developer environment, not committed):** the `spec-pilot` Claude
 Code plugin and its bundled MCP servers.
 
@@ -302,8 +308,9 @@ To supplement the native sub-agents and ensure a rigorous planning phase before
 any code is written, this repository is developed with **SpecPilot**, a
 spec-driven development plugin for Claude Code. SpecPilot is installed in the
 developer's Claude Code environment (as a plugin); it is **not** vendored into
-this repository. What lands in version control is the *output* of the workflow
-(specifications and plans under `.tasks/`), not the plugin or its configuration.
+this repository. Specifications and plans under `.tasks/` remain local working
+notes. Requirements and decisions needed for review belong in the ticket, PR
+description, or versioned project documentation.
 
 ### Workflow Integration
 
@@ -322,22 +329,20 @@ to ensure work is specified, planned, and reviewed:
 
 ### Artifacts and Audit Trail
 
-The spec-driven artifacts SpecPilot writes are version-controlled under a single
-folder:
+SpecPilot writes local working files under a single ignored folder:
 
 - `.tasks/<feature>/` — Holds the `specifications.md` and `plan.md` for each
-  ticket. Committed examples: [`.tasks/ticket-6/`](../.tasks/ticket-6/) and
-  [`.tasks/ticket-7/`](../.tasks/ticket-7/).
+  ticket, alongside temporary verification output when needed.
 
-These artifacts provide a paper trail that can be audited by the reviewer (or
-the instructor/grader), proving that the AI operated from a shared, written
-intent rather than guesswork.
+Reviewers cannot rely on these files being present in a clone. Record acceptance
+criteria, decisions, and verification results in the ticket, PR, or `docs/` so
+the review record remains available independently of a developer's workspace.
 
 > **Accuracy note.** Earlier drafts of this section referenced a committed
 > `.context/` directory and a repo-level `.mcp.json`. Neither exists in this
-> repository, so those claims were removed: MCP is supplied by the installed
-> plugin (below), and analysis/summary artifacts are not committed. Only
-> `.tasks/` is a real, tracked artifact.
+> repository, so those claims were removed. MCP is supplied by the installed
+> plugin (below); `.agents/`, `.tasks/`, and analysis/summary artifacts are local
+> working files, not tracked repository artifacts.
 
 ### MCP Servers
 
@@ -353,9 +358,9 @@ this repo. The servers available through the plugin during development:
 Because these are environment tooling rather than repository artifacts, cloning
 this repo does not install them; a contributor reproduces the setup by
 installing the `spec-pilot` plugin in their own Claude Code environment (see
-[§10](#10-reproducing-this-workflow)). The MCP requirement is satisfied by this
-plugin-provided tooling, and its influence is visible in the committed `.tasks/`
-specs and plans.
+[§10](#10-reproducing-this-workflow)). MCP is supplied by this plugin-provided
+tooling. Record relevant decisions and verification in reviewable project
+documentation rather than linking to ignored local plans.
 
 ---
 
@@ -368,7 +373,7 @@ A typical ticket implementation follows this flow:
          │
 2. Human defines scope and acceptance criteria (from GitHub issue)
          │
-3. AI agent reads .agents/rules/ to understand constraints
+3. AI agent reads architecture/security docs and any local .agents/rules/
          │
 4. AI implements code (respecting architecture rules)
          │
@@ -465,7 +470,7 @@ python scripts/check-boundaries.py
 
 # 4. Start working on a ticket
 git checkout -b feat/my-feature dev
-# ... implement using the sub-agent skills and rules ...
+# ... implement using project docs and any locally configured skills/rules ...
 # ... the pre-commit hook catches violations automatically ...
 
 # 5. Open a PR
@@ -480,12 +485,29 @@ its MCP servers are developer-environment tooling, so they are reproduced
 separately: install the `spec-pilot` plugin in your own Claude Code environment
 (which registers the bundled `sequential-thinking`, `context-mode`, and
 `context7` MCP servers). No repo-level `.mcp.json` or `.context/` is needed or
-present; the committed evidence of that layer is the [`.tasks/`](../.tasks/)
-specs and plans.
+present. Supply any `.agents/` rules and skills locally using the policies in
+this document, `ARCHITECTURE.md`, and `SECURITY.md`; `.tasks/` plans remain local
+as well. Both directories are ignored and absent from a fresh clone.
 
 ---
 
 ## 11. File Inventory
+
+Tracked workflow artifacts:
+
+```
+scripts/
+  pre-commit-check.py      # Pre-commit quality gate hook (Category 4)
+  install-hooks.py         # Hook installer command (Category 4/5)
+  validate-prompts.py      # Prompt validation command (Category 5)
+  check-boundaries.py      # Boundary check command (Category 5)
+
+prompts/
+  grounded_answer.v1.yaml  # Product prompt artifact (Category 6)
+  safety_check.v1.yaml     # Product prompt artifact (Category 6)
+```
+
+Optional local files (ignored, not included in a clone):
 
 ```
 .agents/
@@ -500,21 +522,8 @@ specs and plans.
     doc-writer/
       SKILL.md             # Documentation writer sub-agent (Category 3)
 
-scripts/
-  pre-commit-check.py      # Pre-commit quality gate hook (Category 4)
-  install-hooks.py         # Hook installer command (Category 4/5)
-  validate-prompts.py      # Prompt validation command (Category 5)
-  check-boundaries.py      # Boundary check command (Category 5)
-
-prompts/
-  grounded_answer.v1.yaml  # Product prompt artifact (Category 6)
-  safety_check.v1.yaml     # Product prompt artifact (Category 6)
-
-.tasks/                    # SpecPilot spec-driven artifacts (Category 7)
-  ticket-6/
+.tasks/                    # Local specs, plans, and verification output (Category 7)
+  <feature>/
     specifications.md      # Spec written by /specify
     plan.md                # Roadmap written by /plan
-  ticket-7/
-    specifications.md
-    plan.md
 ```
