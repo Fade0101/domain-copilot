@@ -643,7 +643,9 @@ async def test_schema_is_at_the_expected_migration_head(
         version: str = (
             await session.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert version == "4c1e9a7d52b8"
+    from alembic.script import ScriptDirectory
+
+    assert ScriptDirectory.from_config(Config("alembic.ini")).get_heads() == [version]
 
 
 async def test_deleting_a_chunk_cascades_to_its_embeddings(

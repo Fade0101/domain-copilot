@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 #: Driver this application connects with. Everything here is async, so a URL
 #: naming a sync driver would fail at connection time with an unhelpful error.
@@ -48,9 +49,15 @@ class Database:
     the next authorization check rather than being replaced.
     """
 
-    def __init__(self, url: str, *, echo: bool = False) -> None:
+    def __init__(self, url: str, *, echo: bool = False, pooling: bool = True) -> None:
         self._engine: AsyncEngine = create_async_engine(
-            normalize_database_url(url), echo=echo, pool_pre_ping=True
+            normalize_database_url(url),
+            echo=echo,
+            pool_pre_ping=True,
+            hide_parameters=True,
+            # Celery invokes asyncio.run per task. Async connections cannot move
+            # between those event loops; worker adapters therefore opt out of pooling.
+            **({} if pooling else {"poolclass": NullPool}),
         )
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             self._engine, expire_on_commit=False

@@ -8,10 +8,13 @@ commands and views so pydantic never crosses into domain/application.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.application.documents.dto import DocumentView
+from app.application.ports.ingestion import IngestionDocument
 
 
 class RegisterDocumentRequest(BaseModel):
@@ -47,4 +50,50 @@ class DocumentResponse(BaseModel):
             version=view.version,
             registered_at=view.registered_at,
             metadata=view.metadata,
+        )
+
+
+class IngestionAcceptedResponse(BaseModel):
+    document_id: UUID
+    job_id: UUID
+    state: str
+    status_url: str
+    document_url: str
+    reused: bool
+
+
+class IngestionStatusResponse(BaseModel):
+    id: UUID
+    filename: str
+    content_hash: str
+    media_type: str
+    version: int
+    status: str
+    job_id: UUID
+    stages: dict[str, Any]
+    error_stage: str | None
+    error_message: str | None
+    created_at: datetime
+    ingested_at: datetime | None
+    chunk_count: int
+
+    @classmethod
+    def from_document(cls, document: IngestionDocument) -> IngestionStatusResponse:
+        return cls(
+            id=document.id,
+            filename=document.filename,
+            content_hash=document.content_hash,
+            media_type=document.media_type,
+            version=document.version,
+            status=document.status.lower(),
+            job_id=document.job_id,
+            stages={
+                key: {**value, "status": value["status"].lower()}
+                for key, value in document.stages.items()
+            },
+            error_stage=document.error_stage,
+            error_message=document.error_message,
+            created_at=document.created_at,
+            ingested_at=document.ingested_at,
+            chunk_count=document.chunk_count,
         )

@@ -32,7 +32,6 @@ services:
       retries: 5
 
   migrate:
-    profiles: ["jobs"]
     build: .
     command: ["alembic", "upgrade", "head"]
     environment:
@@ -42,7 +41,6 @@ services:
         condition: service_healthy
 
   worker:
-    profiles: ["jobs"]
     build: .
     environment: &job_environment
       DATABASE__URL: ${DATABASE__URL:-}
@@ -52,6 +50,19 @@ services:
       QUEUE__PUBLISH_TIMEOUT_SECONDS: ${QUEUE__PUBLISH_TIMEOUT_SECONDS:-2}
       QUEUE__MAX_PAYLOAD_BYTES: ${QUEUE__MAX_PAYLOAD_BYTES:-65536}
       QUEUE__MAX_CHECKPOINT_BYTES: ${QUEUE__MAX_CHECKPOINT_BYTES:-1048576}
+      EMBEDDING__MODEL: ${EMBEDDING__MODEL:-all-MiniLM-L6-v2}
+      EMBEDDING__DIMENSIONS: ${EMBEDDING__DIMENSIONS:-384}
+      EMBEDDING__VERSION: ${EMBEDDING__VERSION:-1}
+      EMBEDDING__BATCH_SIZE: ${EMBEDDING__BATCH_SIZE:-32}
+      INGESTION__CHUNK_TOKENS: ${INGESTION__CHUNK_TOKENS:-512}
+      INGESTION__CHUNK_OVERLAP: ${INGESTION__CHUNK_OVERLAP:-64}
+      INGESTION__MAX_UPLOAD_BYTES: ${INGESTION__MAX_UPLOAD_BYTES:-10485760}
+      INGESTION__MAX_PAGES: ${INGESTION__MAX_PAGES:-500}
+      INGESTION__MAX_CHARACTERS: ${INGESTION__MAX_CHARACTERS:-2000000}
+      INGESTION__MAX_CHUNKS: ${INGESTION__MAX_CHUNKS:-4096}
+      INGESTION__STAGE_TIMEOUT_SECONDS: ${INGESTION__STAGE_TIMEOUT_SECONDS:-600}
+    volumes:
+      - embedding_cache:/app/.cache/huggingface
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -60,7 +71,6 @@ services:
     stop_grace_period: 30s
 
   api:
-    profiles: ["jobs"]
     build: .
     command:
       - uvicorn
@@ -76,12 +86,29 @@ services:
       AUTH__SEED_DEMO_ACCOUNTS: ${AUTH__SEED_DEMO_ACCOUNTS:-true}
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
 
+  seed:
+    profiles: ["seed"]
+    build: .
+    command: ["python", "scripts/ingest_documents.py", "--seed", "--wait"]
+    environment:
+      INGEST_API_URL: http://api:8000
+      AUTH__DEMO_PASSWORD: ${AUTH__DEMO_PASSWORD:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
+  embedding_cache:

@@ -41,10 +41,23 @@ class JobService:
         user_id: UUID,
         correlation_id: UUID | None = None,
     ) -> Job:
+        job = self.prepare(operation_type, payload, user_id=user_id, correlation_id=correlation_id)
+        await self.store.add(job)
+        return await self.dispatch(job.id)
+
+    def prepare(
+        self,
+        operation_type: str,
+        payload: dict[str, Any],
+        *,
+        user_id: UUID,
+        correlation_id: UUID | None = None,
+    ) -> Job:
+        """Validate and construct a PENDING job for an atomic domain+job transaction."""
         validate_json(payload, self._max_payload_bytes)
         self._handlers.get(operation_type).validate(payload)
         now = self._clock.now()
-        job = Job(
+        return Job(
             id=UUID(self._ids.new_id()),
             operation_type=operation_type,
             input_payload=deepcopy(payload),
@@ -53,9 +66,18 @@ class JobService:
             user_id=user_id,
             correlation_id=correlation_id or UUID(self._ids.new_id()),
         )
-        await self.store.add(job)
+
+    async def dispatch(self, job_id: UUID) -> Job:
+        """Publish an already committed job; safe for duplicate submissions and recovery."""
+        job = await self.get(job_id)
         # Mark QUEUED before publishing: a fast worker must never see PENDING.
-        job = await self.store.transition(job.id, JobState.QUEUED, self._clock.now())
+        if job.state == JobState.PENDING:
+            try:
+                job = await self.store.transition(job.id, JobState.QUEUED, self._clock.now())
+            except InvalidStateTransitionError:
+                job = await self.get(job.id)
+        if job.state != JobState.QUEUED:
+            return job
         try:
             await self._queue.enqueue(job.id)
         except JobQueueUnavailableError:

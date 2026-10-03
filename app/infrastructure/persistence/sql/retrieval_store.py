@@ -134,6 +134,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 "section": record.section,
                 "page": record.page,
                 "token_count": record.token_count,
+                "document_version": record.document_version,
+                "ingested_at": record.ingested_at,
             }
             for record in records
         ]
@@ -158,6 +160,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 "section": chunk_stmt.excluded.section,
                 "page": chunk_stmt.excluded.page,
                 "token_count": chunk_stmt.excluded.token_count,
+                "document_version": chunk_stmt.excluded.document_version,
+                "ingested_at": chunk_stmt.excluded.ingested_at,
             },
         )
 
@@ -201,6 +205,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 tables.chunks.c.page,
                 tables.chunks.c.text,
                 distance.label("distance"),
+                tables.chunks.c.document_version,
+                tables.chunks.c.ingested_at,
                 tables.chunk_embeddings.c.embedding_model,
                 tables.chunk_embeddings.c.embedding_dim,
                 tables.chunk_embeddings.c.embedding_version,
@@ -239,6 +245,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 snippet=row.text,
                 # Cosine similarity: pgvector's distance is 1 - similarity.
                 score=1.0 - float(row.distance),
+                document_version=row.document_version,
+                ingested_at=row.ingested_at,
                 # Provenance is read back from the stored row, never assumed from
                 # this instance's configuration -- a citation must describe the
                 # vector that actually matched.
@@ -263,6 +271,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 tables.chunks.c.page,
                 tables.chunks.c.text,
                 rank.label("rank"),
+                tables.chunks.c.document_version,
+                tables.chunks.c.ingested_at,
             )
             .select_from(
                 tables.chunks.join(
@@ -289,6 +299,8 @@ class PostgresRetrievalStore(IRetrievalStore):
                 page=row.page,
                 snippet=row.text,
                 score=float(row.rank),
+                document_version=row.document_version,
+                ingested_at=row.ingested_at,
                 # A full-text match involves no embedding, so reporting one would
                 # be fabricated provenance.
                 embedding_model=None,

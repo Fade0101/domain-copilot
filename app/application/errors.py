@@ -165,3 +165,11 @@ class JobPaused(Exception):
 
 class JobCancelled(Exception):
     """Cooperative cancellation signal; the runner records CANCELLED, not FAILED."""
+
+
+class IngestionError(ApplicationError):
+    """A safe, actionable pipeline failure suitable for a document's status record."""
+
+
+class UploadTooLargeError(ApplicationError):
+    """The source upload exceeds the configured byte limit (HTTP 413)."""

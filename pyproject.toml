@@ -39,6 +39,8 @@ forbidden_modules = [
     "passlib",
     "httpx",
     "yaml",
+    "pypdf",
+    "markdown_it",
 ]
 
 [[tool.importlinter.contracts]]
@@ -67,6 +69,8 @@ forbidden_modules = [
     "passlib",
     "httpx",
     "yaml",
+    "pypdf",
+    "markdown_it",
 ]
 
 [[tool.importlinter.contracts]]

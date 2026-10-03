@@ -24,7 +24,7 @@ _PORT_SOURCE = (
 
 # Everything the port is allowed to import. Anything else -- in particular a
 # database or vector SDK -- would make the contract non-portable.
-_ALLOWED_IMPORTS = {"__future__", "dataclasses", "typing", "uuid"}
+_ALLOWED_IMPORTS = {"__future__", "dataclasses", "datetime", "typing", "uuid"}
 
 _DOCUMENT_ID = UUID("11111111-1111-1111-1111-111111111111")
 _MODEL = "all-MiniLM-L6-v2"

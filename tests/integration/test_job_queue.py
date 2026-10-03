@@ -133,7 +133,13 @@ def jobs(database_url: str) -> Iterator[Environment]:
 
 
 @contextmanager
-def worker(jobs: Environment, directory: Path) -> Iterator[subprocess.Popen[bytes]]:
+def worker(
+    jobs: Environment,
+    directory: Path,
+    *,
+    module: str = "tests.integration.job_worker",
+    environment_overrides: dict[str, str] | None = None,
+) -> Iterator[subprocess.Popen[bytes]]:
     name = "t20-" + uuid4().hex + "@localhost"
     log_path = directory / (name.replace("@", "-") + ".log")
     environment = {
@@ -142,6 +148,7 @@ def worker(jobs: Environment, directory: Path) -> Iterator[subprocess.Popen[byte
         "QUEUE__BROKER_URL": jobs.broker,
         "QUEUE__DEFAULT_QUEUE": jobs.queue,
         "QUEUE__PUBLISH_TIMEOUT_SECONDS": "0.5",
+        **(environment_overrides or {}),
     }
     creation_flags = 0
     if sys.platform == "win32":
@@ -151,7 +158,7 @@ def worker(jobs: Environment, directory: Path) -> Iterator[subprocess.Popen[byte
             [
                 sys.executable,
                 "-m",
-                "tests.integration.job_worker",
+                module,
                 "--pool=solo",
                 "--concurrency=1",
                 "--without-gossip",

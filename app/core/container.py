@@ -35,6 +35,10 @@ from app.application.auth.use_cases import (
     AuthenticateUserUseCase,
     ResolvePrincipalUseCase,
 )
+from app.application.documents.chunking import StructureAwareChunker
+from app.application.documents.embedding import IngestionEmbedder
+from app.application.documents.ingestion_handler import DocumentIngestionHandler
+from app.application.documents.ingestion_service import IngestionService
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.errors import ConfigurationError, ProviderConfigurationError
 from app.application.jobs.diagnostic import DiagnosticJobHandler
@@ -55,10 +59,12 @@ from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
 from app.core.config import Settings, get_settings
 from app.domain.auth.value_objects import Password
+from app.domain.documents.ingestion import IngestionOptions
 from app.infrastructure.audit.logging_sink import LoggingAuditSink
 from app.infrastructure.auth.password_hasher import BcryptPasswordHasher
 from app.infrastructure.auth.token_service import JwtTokenService
 from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
+from app.infrastructure.ingestion.extractors import DocumentExtractor
 from app.infrastructure.llm.fallback import FallbackLLMProvider
 from app.infrastructure.llm.groq_adapter import GroqAdapter
 from app.infrastructure.llm.ollama_adapter import OllamaAdapter
@@ -73,6 +79,7 @@ from app.infrastructure.persistence.in_memory.user_repository import (
     InMemoryUserRepository,
 )
 from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
+from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestionStore
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
@@ -320,8 +327,15 @@ class Container:
     def job_service(self) -> JobService:
         """Build the durable queue on first use; never substitute in-memory jobs."""
         if self._jobs is None:
-            self._jobs = build_job_runtime(self.settings)
+            self._jobs = build_job_runtime(self.settings, database=self._database)
         return self._jobs.service
+
+    @property
+    def ingestion_service(self) -> IngestionService:
+        self.job_service  # Resolve the shared runtime on the API event loop.
+        if self._jobs is None or self._jobs.ingestion is None:
+            raise ConfigurationError("DATABASE__URL is required for durable ingestion.")
+        return self._jobs.ingestion
 
     @property
     def password_hasher(self) -> IPasswordHasher:
@@ -423,23 +437,76 @@ class JobRuntime:
     runner: JobRunner
     celery_app: Celery
     engine: Engine
+    database: Database | None = None
+    ingestion: IngestionService | None = None
+    embeddings: LocalEmbeddingAdapter | None = None
+    owns_database: bool = True
 
     async def close(self) -> None:
         self.celery_app.close()
         await asyncio.to_thread(self.engine.dispose)
+        if self.database is not None and self.owns_database:
+            await self.database.dispose()
+        if self.embeddings is not None:
+            self.embeddings.close()
+
+
+def build_ingestion_options(settings: Settings) -> IngestionOptions:
+    return IngestionOptions(
+        chunk_tokens=settings.ingestion.chunk_tokens,
+        chunk_overlap=settings.ingestion.chunk_overlap,
+        max_chunks=settings.ingestion.max_chunks,
+        embedding_batch_size=settings.embedding.batch_size,
+        embedding_model=settings.embedding.model,
+        embedding_dim=settings.embedding.dimensions,
+        embedding_version=settings.embedding.version,
+    )
 
 
 def build_job_runtime(
     settings: Settings,
     *,
     handlers: Iterable[IJobHandler] | None = None,
+    database: Database | None = None,
 ) -> JobRuntime:
     if not settings.database.url:
         raise ConfigurationError("DATABASE__URL is required for durable jobs.")
     engine = create_job_engine(settings.database.url)
     store: IJobStore = PostgresJobStore(engine)
-    registry = JobHandlerRegistry(handlers if handlers is not None else [DiagnosticJobHandler()])
     clock = SystemClock()
+    owns_database = database is None
+    embeddings = None
+    ingestion_store = None
+    if handlers is None:
+        # API callers borrow the existing Database; workers use the same engine
+        # factory without pooling across Celery's per-task asyncio.run event loops.
+        database = database or Database(settings.database.url, pooling=False)
+        embeddings = LocalEmbeddingAdapter(model_name=settings.embedding.model)
+        ingestion_store = PostgresIngestionStore(database.session_factory)
+        options = build_ingestion_options(settings)
+        retrieval = PostgresRetrievalStore(
+            database.session_factory,
+            embedding_model=options.embedding_model,
+            embedding_dim=options.embedding_dim,
+            embedding_version=options.embedding_version,
+        )
+        handlers = [
+            DiagnosticJobHandler(),
+            DocumentIngestionHandler(
+                ingestion_store,
+                DocumentExtractor(
+                    max_pages=settings.ingestion.max_pages,
+                    max_characters=settings.ingestion.max_characters,
+                ),
+                StructureAwareChunker(embeddings),
+                IngestionEmbedder(embeddings, embeddings),
+                retrieval,
+                clock,
+                options,
+                stage_timeout_seconds=settings.ingestion.stage_timeout_seconds,
+            ),
+        ]
+    registry = JobHandlerRegistry(handlers)
     celery_app = create_celery_app(
         settings.queue.broker_url,
         settings.queue.default_queue,
@@ -462,7 +529,19 @@ def build_job_runtime(
         max_payload_bytes=settings.queue.max_payload_bytes,
     )
     register_job_task(celery_app, runner)
-    return JobRuntime(service, runner, celery_app, engine)
+    ingestion = (
+        None
+        if ingestion_store is None
+        else IngestionService(
+            ingestion_store,
+            service,
+            build_ingestion_options(settings),
+            max_upload_bytes=settings.ingestion.max_upload_bytes,
+        )
+    )
+    return JobRuntime(
+        service, runner, celery_app, engine, database, ingestion, embeddings, owns_database
+    )
 
 
 @lru_cache

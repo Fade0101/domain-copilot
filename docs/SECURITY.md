@@ -34,8 +34,11 @@ Evidence, tests, and implementation references will be added as each control is 
 
 * [ ] **Input Validation** — All API inputs are validated using typed schemas.
 * [ ] **Payload Limits** — Request bodies, query parameters, and uploaded documents have explicit size and complexity limits.
-* [ ] **File Validation** — Uploaded documents are restricted to supported formats and validated before ingestion.
-* [ ] **Path Safety** — Uploaded filenames and paths cannot cause path traversal or arbitrary filesystem access.
+  * Ticket #8 enforces streamed upload bytes, PDF page/extracted-character/chunk limits and per-action timeouts. Tests cover declared and chunked-body overflow before source/job creation. Broader endpoint limits remain separate; parser/model threads are not forcibly terminated by the async timeout.
+* [x] **File Validation** — Uploaded documents are restricted to supported formats and validated before ingestion.
+  * Ticket #8 checks extension/content type and PDF signature before accepting a source. Real parser tests cover malformed/encrypted/empty PDFs and invalid/binary Markdown; worker extraction failures are persisted and queryable. Only PDF and Markdown are supported.
+* [x] **Path Safety** — Uploaded filenames and paths cannot cause path traversal or arbitrary filesystem access.
+  * `source_media_type` rejects path separators, drive prefixes, controls and NULs; filenames are descriptive metadata. Original bytes are stored in PostgreSQL, with no client-supplied server path or fetched source URL. See `tests/unit/application/test_ingestion.py`.
 * [ ] **SQL Injection Protection** — Database access uses parameterized queries/ORM/database abstractions. User-controlled values must never be interpolated directly into SQL.
 * [ ] **Rate Limiting** — Appropriate endpoints have configurable rate limits to reduce abuse and resource exhaustion.
 * [ ] **CORS** — CORS allows only explicitly configured origins.
@@ -47,9 +50,11 @@ Evidence, tests, and implementation references will be added as each control is 
 ## 3. Data & Privacy Protection
 
 * [ ] **Synthetic/Public Data Only** — The assessment implementation must not use real patient/PHI data.
+  * All supplied Ticket #8 parser/seed inputs are synthetic and contain no patient records. INGESTION.md requires synthetic/public non-PII uploads; no content detector/redactor is claimed.
 * [ ] **PII Minimization** — Personally identifiable information is minimized and is not unnecessarily included in prompts, traces, logs, or error messages.
 * [ ] **PII Detection** — Presidio or an equivalent mechanism is used where required to detect/redact sensitive information before data is sent outside the intended infrastructure boundary.
 * [ ] **LLM Data Boundary** — The application documents what data may be sent to external LLM providers and what data remains local.
+  * Ingestion stores original bytes/text/artifacts in PostgreSQL and runs local embeddings. Public model weights are downloaded from Hugging Face; ingestion does not invoke a chat provider, fetch source links or execute embedded markup. Later LLM workflows require their own boundary review.
 * [ ] **Secrets Management** — API keys, JWT secrets, database credentials, and other secrets are supplied through environment/configuration mechanisms and never hard-coded.
 * [ ] **No Secrets in Logs** — Tokens, passwords, API keys, authorization headers, and other credentials are excluded from logs and traces.
 * [ ] **Secret Scanning** — Gitleaks or equivalent secret scanning runs in CI and is performed before submission, including repository history where applicable.
@@ -125,6 +130,11 @@ T7 introduces long-running jobs that must remain protected across requests and w
     messages contain only UUIDs and the Celery result backend is disabled.
     Handler failures persist a fixed safe code; storage errors return a fixed 503.
     Submission/checkpoint data have configurable size limits and JSON validation.
+    Ticket #8 atomically commits source/document/job ownership before enqueue and
+    checkpoints artifact references. A handler verifies both the document owner
+    and its attached job ID, so an extra generic job cannot mutate an unrelated
+    ingestion attempt. Document polling uses the existing persisted ownership
+    authorization; tests cover other-user denial and administrative reads.
 
 ---
 

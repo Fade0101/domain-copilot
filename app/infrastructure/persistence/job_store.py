@@ -65,6 +65,29 @@ def _to_job(row: RowMapping) -> Job:
     )
 
 
+def job_insert_values(job: Job) -> dict[str, Any]:
+    """Shared by job submission and atomic document+source+job acceptance (#8)."""
+    return {
+        "id": job.id,
+        "user_id": job.user_id,
+        "operation_type": job.operation_type,
+        "state": job.state.value,
+        "idempotency_key": str(job.id),
+        "input_payload": job.input_payload,
+        "result_payload": job.result_payload,
+        "checkpoint_data": job.checkpoint_data,
+        "correlation_id": job.correlation_id,
+        "attempt_number": job.attempt_number,
+        "max_attempts": 3,
+        "last_error": job.last_error,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "cancellation_requested": job.cancellation_requested,
+    }
+
+
 class PostgresJobStore(IJobStore):
     def __init__(self, engine: Engine, *, connection: Connection | None = None) -> None:
         self._engine = engine
@@ -92,27 +115,7 @@ class PostgresJobStore(IJobStore):
     async def add(self, job: Job) -> None:
         def insert() -> None:
             with self._transaction() as connection:
-                connection.execute(
-                    _jobs.insert().values(
-                        id=job.id,
-                        user_id=job.user_id,
-                        operation_type=job.operation_type,
-                        state=job.state.value,
-                        idempotency_key=str(job.id),
-                        input_payload=job.input_payload,
-                        result_payload=job.result_payload,
-                        checkpoint_data=job.checkpoint_data,
-                        correlation_id=job.correlation_id,
-                        attempt_number=job.attempt_number,
-                        max_attempts=3,
-                        last_error=job.last_error,
-                        created_at=job.created_at,
-                        updated_at=job.updated_at,
-                        started_at=job.started_at,
-                        completed_at=job.completed_at,
-                        cancellation_requested=job.cancellation_requested,
-                    )
-                )
+                connection.execute(_jobs.insert().values(**job_insert_values(job)))
 
         await self._call(insert)
 

@@ -519,8 +519,8 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 
 | Req ID   | Title                                | Status     | Evidence / Notes                              |
 | -------- | ------------------------------------ | ---------- | --------------------------------------------- |
-| FR-1     | Document Ingestion Pipeline          | ❌ Not Started |                                            |
-| FR-2     | Hybrid Retrieval & Citations         | ❌ Not Started |                                            |
+| FR-1     | Document Ingestion Pipeline          | 🔶 Partial | #8 implements PDF/Markdown extract → clean → chunk → embed → index on the #20 runner, with durable source/stages/errors, citation metadata, duplicate suppression, 202 submission and checkpoint resume. Real PostgreSQL/Redis/Celery tests and a real-model Docker seed cover ingestion; AC-1.7 progress push remains #21. See INGESTION.md and ADR-001. |
+| FR-2     | Hybrid Retrieval & Citations         | 🔶 Partial | #9 provides pgvector cosine/HNSW and PostgreSQL FTS/GIN search. #8 adds structure-aware 512/64 windows, deterministic IDs, document version/timestamp and page/heading citations (AC-2.4; ADR-001). Fusion, reranking and refusal thresholds remain #10. |
 | FR-3     | Evaluation Harness                   | ❌ Not Started |                                            |
 | FR-4     | Multi-Agent System                   | ❌ Not Started |                                            |
 | FR-5     | Orchestration & Approval Gate        | ❌ Not Started |                                            |
@@ -533,10 +533,10 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 | AR-3     | Dependency Injection                 | ✅ Implemented | Implemented for the current application surface: the composition root (`core/container.py`) constructs current adapters/providers and request dependencies bridge through `Depends()`; future adapters are wired as their tickets land (#3, ADR-006) |
 | AR-4     | Configuration & Prompts              | ✅ Implemented | Nested pydantic-settings for LLM/embedding/queue/retrieval/limits/retries (secrets via env + `SecretStr`, none committed — C6); versioned `prompts/*.yaml` loaded through `IPromptProvider`/`YamlPromptProvider`, schema-validated at startup, never inline literals (#3, ADR-006) |
 | AR-5     | Domain Errors                        | ✅ Implemented | Typed `DomainError`+`ApplicationError` taxonomies incl. `JobNotFoundError`/`ConfigurationError`; single type→(status,code) boundary mapping with structured `{detail,code}` body, server faults static-messaged, and a fail-safe 500 that never leaks internals (SDD A.5.1); later tickets add more typed errors (#3, ADR-006) |
-| AR-6     | Data Stores & Migrations             | 🔶 Partial | PostgreSQL owns jobs/checkpoints/results; additive migration and real Redis-loss tests (#20). Other domain stores remain separate tickets. |
-| AR-7     | ADRs (≥4)                            | 🔶 Partial | ADR-004/005/006/007 written; required ADR-001/002/003 remain reserved. |
-| AR-8     | Testing                              | 🔶 Partial  | Unit (domain + application via fakes), integration (documents API), and architecture boundary tests; full integration/contract suite later |
-| AR-9     | Packaging (docker compose)           | ❌ Not Started |                                            |
+| AR-6     | Data Stores & Migrations             | 🔶 Partial | #6 shared ORM/Alembic metadata is used by #20 jobs, #9 retrieval and #8 durable sources/artifacts/progress. Additive revision 95c7e8a12d40 preserves prior documents/vectors; migration replay, schema drift and Redis-loss recovery are tested. Workflow/approval/trace/cost persistence remains separate work. |
+| AR-7     | ADRs (≥4)                            | 🔶 Partial | ADR-001/003/004/005/006/007 are written. ADR-001 records chunking/ingestion embeddings; #10 will extend the retrieval strategy. Required ADR-002 remains reserved for orchestration. |
+| AR-8     | Testing                              | 🔶 Partial | Unit tests use ports/fakes; real parser, PostgreSQL/pgvector, Redis and separate Celery tests cover ingestion/retrieval, API authorization, duplicates, worker death and migration preservation. A Docker smoke exercises real model weights. Agent/tool contract tests remain with their feature tickets. |
+| AR-9     | Packaging (docker compose)           | ✅ Implemented | Default docker compose up starts API, Celery worker, PostgreSQL/pgvector, Redis and migrations. Synthetic PDF/Markdown seed and upload CLI are documented in INGESTION.md; fresh setup and repeated seed verified with the real model. .env.example includes limits and blank credentials. (#8/#20) |
 | SEC-1    | OWASP Web Top 10                     | ❌ Not Started |                                            |
 | SEC-2    | OWASP LLM Top 10                     | ❌ Not Started |                                            |
 | SEC-3    | Secrets Hygiene                      | ❌ Not Started |                                            |
@@ -549,12 +549,12 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 | ENG-7    | Agentic Workflow Doc                 | ✅ Implemented | 6 categories documented in `AGENTIC-WORKFLOW.md`: instruction files, versioned prompts/skills, scoped sub-agents (security-reviewer, test-writer, doc-writer), pre-commit hooks, custom commands, versioned prompt library (#4) |
 | ENG-8    | AI Usage Log                         | ✅ Implemented | `AI-USAGE-LOG.md` with 5 real entries: delegated tasks, AI mistakes (architecture violation, error leakage, false status claim, boolean edge case), verification methods (#4) |
 | T7-01    | Real Queue + Workers                 | ✅ Implemented | Celery + Redis, separate processes, PostgreSQL results; real-service tests and ADR-004 (#20). |
-| T7-02    | Immediate Return (HTTP 202)          | 🔶 Partial | Generic authenticated POST /jobs returns 202; domain submission routes belong to #8/#12/#17. |
+| T7-02    | Immediate Return (HTTP 202)          | 🔶 Partial | Generic authenticated POST /jobs (#20) and raw POST /documents/ingest (#8) return 202 with a committed job UUID and polling URL; the upload does not wait for extraction/model loading. Evaluation/workflow routes remain #12/#17. |
 | T7-03    | Progress Push (SSE)                  | ❌ Not Started |                                            |
 | T7-04    | Survive Restart                      | 🔶 Partial | Hard worker death and explicit PG resume/reconcile tested; heartbeat/recovery scheduling remains #22. |
 | T7-05    | Resumable                            | ✅ Implemented | Named PG checkpoints skip committed steps after restart; effect boundary documented in JOBS.md. |
 | T7-06    | Cancellable                          | 🔶 Partial | Durable flag and cooperative CANCELLED outcome exist; cancel API/Redis transport remains #21. |
-| T7-07    | Idempotent                           | ❌ Not Started |                                            |
+| T7-07    | Idempotent                           | 🔶 Partial | #8 deduplicates immutable source uploads per owner/hash/type/version, reuses active/completed jobs and resumes artifacts with deterministic chunk/provenance upserts. Concurrent duplicates and repeat seed are verified. General canonical-input job keys and policy remain #22. |
 | T7-08    | Job Management API                   | 🔶 Partial | Owned job detail/state/result/error polling (#20); list/cancel/retry remain later tickets. |
 | T7-09    | Job Lifecycle Model                  | 🔶 Partial | Exact six-state lifecycle and illegal-transition rejection tested; FAILED retry exception remains #22. |
 | BR-01    | No Dosage Inference                  | ❌ Not Started |                                            |
