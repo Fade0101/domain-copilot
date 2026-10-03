@@ -100,7 +100,21 @@ The generic job smoke operation is
 `{"operation_type":"diagnostic","payload":{}}` at `POST /api/v1/jobs`.
 [Async Jobs](docs/JOBS.md) documents native setup, handler registration and
 explicit recovery commands. SSE/cancel transport (#21), general recovery policy
-(#22), retrieval/fusion (#10) and corpus content (#11) remain separate work.
+(#22) and corpus content (#11) remain separate work.
+
+## Hybrid retrieval and grounded Q&A
+
+Ticket #10 adds authenticated `POST /api/v1/retrieve` (`{"query":"..."}`) and
+`POST /api/v1/ask` (`{"question":"..."}`). Retrieval combines the existing dense
+and keyword searches using RRF with k=60, then locally reranks with
+`BAAI/bge-reranker-v2-m3`. The first retrieval downloads the model weights.
+
+Grounded ask uses the configured #7 chat provider to select evidence, returns
+complete indexed excerpts with structured citations, and refuses insufficient
+evidence with exactly `Not enough information in the corpus`. Supply chat
+credentials through the existing `LLM__*` settings. See
+[Hybrid Retrieval and Grounded Q&A](docs/RETRIEVAL.md) for requests, score meaning,
+model resources, traces and real-model verification.
 
 ## Documentation
 
@@ -111,3 +125,4 @@ explicit recovery commands. SSE/cancel transport (#21), general recovery policy
 - [Security](docs/SECURITY.md) · [Evaluation](docs/EVALUATION.md)
 - [Async Jobs](docs/JOBS.md) — startup, API, checkpoint and recovery contracts
 - [Document Ingestion](docs/INGESTION.md) — PDF/Markdown uploads, synthetic seed, citations and recovery
+- [Hybrid Retrieval and Grounded Q&A](docs/RETRIEVAL.md) — RRF, BGE scores, citations and refusal

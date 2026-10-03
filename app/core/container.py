@@ -54,13 +54,18 @@ from app.application.ports.passwords import IPasswordHasher
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
+from app.application.ports.reranking import IReranker
 from app.application.ports.retrieval import IRetrievalStore
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
+from app.application.qa.use_cases import AskUseCase
+from app.application.retrieval.observability import RetrievalObserver
+from app.application.retrieval.use_cases import HybridRetrievalUseCase, RetrievalOptions
 from app.core.config import Settings, get_settings
 from app.domain.auth.value_objects import Password
 from app.domain.documents.ingestion import IngestionOptions
 from app.infrastructure.audit.logging_sink import LoggingAuditSink
+from app.infrastructure.audit.retrieval_sink import PostgresRetrievalAuditSink
 from app.infrastructure.auth.password_hasher import BcryptPasswordHasher
 from app.infrastructure.auth.token_service import JwtTokenService
 from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
@@ -89,6 +94,7 @@ from app.infrastructure.queue.celery_queue import (
     create_celery_app,
     register_job_task,
 )
+from app.infrastructure.reranking.local_adapter import LocalCrossEncoderReranker
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
 
@@ -275,6 +281,18 @@ class Container:
                 embedding_version=settings.embedding.version,
             )
         )
+        self._reranker = LocalCrossEncoderReranker(
+            device=settings.reranker.device,
+            batch_size=settings.reranker.batch_size,
+            max_length=settings.reranker.max_length,
+            cache_directory=settings.reranker.cache_directory,
+        )
+        retrieval_sink: IAuditSink = (
+            self._audit_sink
+            if self._database is None
+            else PostgresRetrievalAuditSink(self._database.session_factory, self._audit_sink)
+        )
+        self._retrieval_observer = RetrievalObserver(retrieval_sink, self._clock)
 
     @property
     def llm_provider(self) -> ILLMProvider:
@@ -317,11 +335,40 @@ class Container:
 
     async def dispose(self) -> None:
         """Release process-wide resources. Called from the application lifespan."""
+        self._reranker.close()
         if self._jobs is not None:
             await self._jobs.close()
             self._jobs = None
         if self._database is not None:
             await self._database.dispose()
+
+    @property
+    def reranker(self) -> IReranker:
+        return self._reranker
+
+    def hybrid_retrieval_use_case(self) -> HybridRetrievalUseCase:
+        if self._retrieval_store is None:
+            raise ConfigurationError("DATABASE__URL is required for hybrid retrieval.")
+        return HybridRetrievalUseCase(
+            self._retrieval_store,
+            self._embedding_provider,
+            self._reranker,
+            self._authorization_service,
+            self._retrieval_observer,
+            self._id_generator,
+            RetrievalOptions(**self.settings.retrieval.model_dump()),
+        )
+
+    def ask_use_case(self) -> AskUseCase:
+        return AskUseCase(
+            self.hybrid_retrieval_use_case(),
+            self._llm_provider,
+            self._prompt_provider,
+            self._retrieval_observer,
+            self._id_generator,
+            max_tokens=self.settings.llm.max_tokens,
+            timeout_seconds=self.settings.llm.timeout_seconds,
+        )
 
     @property
     def job_service(self) -> JobService:

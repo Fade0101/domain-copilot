@@ -36,6 +36,7 @@ from app.application.errors import (
     AuthorizationError,
     ConfigurationError,
     JobStoreError,
+    KnowledgeUnavailableError,
     ResourceNotFoundError,
     ResourceOwnershipError,
     UploadTooLargeError,
@@ -65,6 +66,14 @@ def _body(detail: str, code: str) -> dict[str, str]:
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register every domain/application error handler plus the fail-safe catch-all."""
+
+    @app.exception_handler(KnowledgeUnavailableError)
+    async def _handle_knowledge(_: Request, exc: KnowledgeUnavailableError) -> JSONResponse:
+        logger.warning("Knowledge request failed: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content=_body("Knowledge service is unavailable", "KNOWLEDGE_UNAVAILABLE"),
+        )
 
     @app.exception_handler(UploadTooLargeError)
     async def _handle_upload_size(_: Request, exc: UploadTooLargeError) -> JSONResponse:

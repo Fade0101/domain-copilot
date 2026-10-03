@@ -397,8 +397,8 @@ recovery/idempotency policy remains #22.
 ### Retrieval
 
 Ticket #9 implements independent dense/keyword search with citation metadata.
-The fusion, reranking and evidence filtering in the following target flow
-remain Ticket #10.
+Ticket #10 adds application-layer RRF (k=60), the local BGE cross-encoder and
+evidence filtering in the following flow, reusing #7's embedding/chat providers.
 
 ```text
 User Query
@@ -424,11 +424,24 @@ Query Embedding
    Citation Objects
 ```
 
-When evidence does not meet the required threshold, the system may return:
+When evidence is insufficient, grounded ask returns exactly:
 
-> Not enough information in the corpus.
+> Not enough information in the corpus
 
-The retrieval pipeline must not manufacture evidence to satisfy a query.
+`POST /retrieve` and `POST /ask` require `ASK_QUESTION`. The new `IReranker` port
+keeps model imports in infrastructure. Grounded-answer v2 selects source IDs;
+the application returns complete indexed excerpts and the exact seven citation
+fields. `relevance_score` is the sigmoid-normalized BGE logit. No clinical prose
+or source metadata is accepted from the model.
+
+`RetrievalObserver` uses the existing audit port and logging sink. The
+PostgreSQL sink writes #6's existing trace/span models through the shared
+session factory, preserving identity, counts, scores, selected chunks, latency
+and refusal. No schema or job infrastructure changes are required.
+
+See [RETRIEVAL.md](./RETRIEVAL.md) and
+[ADR-008](./adr/ADR-008-hybrid-retrieval-and-grounded-qa.md) for score semantics,
+resource limits, verification and the conservative grounding policy.
 
 ---
 
