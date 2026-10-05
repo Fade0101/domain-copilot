@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import platform
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +86,7 @@ class RuntimeEvaluationVersions:
                 "check": True,
                 "timeout": 5,
             }
-            if platform.system() == "Windows":
+            if sys.platform == "win32":
                 options["creationflags"] = subprocess.CREATE_NO_WINDOW
             versions["application_git_commit"] = subprocess.run(
                 ["git", "rev-parse", "HEAD"], **options
