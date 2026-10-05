@@ -22,11 +22,14 @@ import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
+from uuid import UUID
 
 from celery import Celery
 from sqlalchemy.engine import Engine
 
+from app.application.agents.guideline_researcher import GuidelineResearcherAgent
 from app.application.auth.authorization import AuthorizationService
+from app.application.auth.context import Principal
 from app.application.auth.seeding import (
     SeedDemoAccountsResult,
     SeedDemoAccountsUseCase,
@@ -388,6 +391,20 @@ class Container:
             self._retrieval_observer,
             self._clock,
             self._id_generator,
+        )
+
+    def guideline_researcher_agent(
+        self, principal: Principal, workflow_id: UUID
+    ) -> GuidelineResearcherAgent:
+        """Build Guideline Researcher agent (AGT-01) bound to principal and workflow."""
+        factory = self.clinical_tool_factory()
+        tools = factory.for_guideline_researcher(principal, workflow_id)
+        return GuidelineResearcherAgent(
+            llm=self._llm_provider,
+            tools=tools,
+            prompts=self._prompt_provider,
+            observer=self._retrieval_observer,
+            timeout_seconds=self.settings.llm.timeout_seconds or 20.0,
         )
 
     @property
