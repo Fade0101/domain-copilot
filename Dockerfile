@@ -18,6 +18,8 @@ COPY --chown=copilot:copilot migrations ./migrations
 COPY --chown=copilot:copilot prompts ./prompts
 COPY --chown=copilot:copilot alembic.ini ./
 COPY --chown=copilot:copilot scripts/ingest_documents.py ./scripts/ingest_documents.py
+COPY --chown=copilot:copilot scripts/corpus.py scripts/evaluate.py ./scripts/
+COPY --chown=copilot:copilot data ./data
 USER copilot
 
 CMD ["celery", "-A", "app.core.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]

@@ -41,6 +41,7 @@ from app.application.documents.ingestion_handler import DocumentIngestionHandler
 from app.application.documents.ingestion_service import IngestionService
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.errors import ConfigurationError, ProviderConfigurationError
+from app.application.evaluation.service import EvaluationService
 from app.application.jobs.diagnostic import DiagnosticJobHandler
 from app.application.jobs.registry import JobHandlerRegistry
 from app.application.jobs.runner import JobRunner
@@ -60,8 +61,10 @@ from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.observability import RetrievalObserver
-from app.application.retrieval.use_cases import HybridRetrievalUseCase, RetrievalOptions
+from app.application.retrieval.use_cases import HybridRetrievalUseCase
 from app.core.config import Settings, get_settings
+from app.core.evaluation import EvaluationComponents, build_evaluation_components
+from app.core.knowledge import build_hybrid_retrieval
 from app.domain.auth.value_objects import Password
 from app.domain.documents.ingestion import IngestionOptions
 from app.infrastructure.audit.logging_sink import LoggingAuditSink
@@ -123,7 +126,7 @@ def _build_llm_adapter(name: str, settings: Settings) -> ILLMProvider:
         return GroqAdapter(api_key=api_key, default_model=settings.llm.model)
     if key == "ollama":
         return OllamaAdapter(
-            base_url="http://localhost:11434",
+            base_url=settings.llm.ollama_base_url,
             default_model=settings.llm.model,
         )
     raise ProviderConfigurationError(
@@ -349,14 +352,14 @@ class Container:
     def hybrid_retrieval_use_case(self) -> HybridRetrievalUseCase:
         if self._retrieval_store is None:
             raise ConfigurationError("DATABASE__URL is required for hybrid retrieval.")
-        return HybridRetrievalUseCase(
+        return build_hybrid_retrieval(
+            self.settings,
             self._retrieval_store,
             self._embedding_provider,
             self._reranker,
             self._authorization_service,
             self._retrieval_observer,
             self._id_generator,
-            RetrievalOptions(**self.settings.retrieval.model_dump()),
         )
 
     def ask_use_case(self) -> AskUseCase:
@@ -383,6 +386,13 @@ class Container:
         if self._jobs is None or self._jobs.ingestion is None:
             raise ConfigurationError("DATABASE__URL is required for durable ingestion.")
         return self._jobs.ingestion
+
+    @property
+    def evaluation_service(self) -> EvaluationService:
+        self.job_service
+        if self._jobs is None or self._jobs.evaluation is None:
+            raise ConfigurationError("DATABASE__URL is required for evaluation.")
+        return self._jobs.evaluation
 
     @property
     def password_hasher(self) -> IPasswordHasher:
@@ -488,8 +498,12 @@ class JobRuntime:
     ingestion: IngestionService | None = None
     embeddings: LocalEmbeddingAdapter | None = None
     owns_database: bool = True
+    evaluation: EvaluationService | None = None
+    evaluation_components: EvaluationComponents | None = None
 
     async def close(self) -> None:
+        if self.evaluation_components is not None:
+            self.evaluation_components.reranker.close()
         self.celery_app.close()
         await asyncio.to_thread(self.engine.dispose)
         if self.database is not None and self.owns_database:
@@ -524,6 +538,7 @@ def build_job_runtime(
     owns_database = database is None
     embeddings = None
     ingestion_store = None
+    evaluation_components = None
     if handlers is None:
         # API callers borrow the existing Database; workers use the same engine
         # factory without pooling across Celery's per-task asyncio.run event loops.
@@ -537,8 +552,18 @@ def build_job_runtime(
             embedding_dim=options.embedding_dim,
             embedding_version=options.embedding_version,
         )
+        evaluation_components = build_evaluation_components(
+            settings,
+            database,
+            embeddings,
+            retrieval,
+            store,
+            clock,
+            lambda: build_llm_provider(settings),
+        )
         handlers = [
             DiagnosticJobHandler(),
+            evaluation_components.handler,
             DocumentIngestionHandler(
                 ingestion_store,
                 DocumentExtractor(
@@ -586,8 +611,28 @@ def build_job_runtime(
             max_upload_bytes=settings.ingestion.max_upload_bytes,
         )
     )
+    evaluation = (
+        None
+        if evaluation_components is None
+        else EvaluationService(
+            service,
+            evaluation_components.catalog,
+            evaluation_components.artifacts,
+            evaluation_components.authorization,
+            clock,
+        )
+    )
     return JobRuntime(
-        service, runner, celery_app, engine, database, ingestion, embeddings, owns_database
+        service,
+        runner,
+        celery_app,
+        engine,
+        database,
+        ingestion,
+        embeddings,
+        owns_database,
+        evaluation,
+        evaluation_components,
     )
 
 

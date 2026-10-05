@@ -1,5 +1,10 @@
 # Evaluation Plan
 
+Ticket #12's implemented command, golden-set pins, precise extractive metric
+definitions, async controls and measured baseline are documented in
+[EVALUATION-RUNBOOK.md](EVALUATION-RUNBOOK.md). The broader clinical-note and
+agent-workflow sections below remain requirements for their respective tickets.
+
 This document defines the evaluation strategy for the RAG, safety, and agentic workflow implementation in Domain Copilot.
 
 
