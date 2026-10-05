@@ -28,5 +28,7 @@ async def test_clinical_tool_factory_requires_authoritative_postgres() -> None:
             from tests.support.knowledge_fakes import principal
 
             container.guideline_researcher_agent(principal(), uuid4())
+        with pytest.raises(ConfigurationError, match="DATABASE__URL"):
+            container.safety_checker_agent(principal(), uuid4())
     finally:
         await container.dispose()

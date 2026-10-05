@@ -28,6 +28,7 @@ from celery import Celery
 from sqlalchemy.engine import Engine
 
 from app.application.agents.guideline_researcher import GuidelineResearcherAgent
+from app.application.agents.safety_checker import SafetyCheckerAgent
 from app.application.auth.authorization import AuthorizationService
 from app.application.auth.context import Principal
 from app.application.auth.seeding import (
@@ -400,6 +401,18 @@ class Container:
         factory = self.clinical_tool_factory()
         tools = factory.for_guideline_researcher(principal, workflow_id)
         return GuidelineResearcherAgent(
+            llm=self._llm_provider,
+            tools=tools,
+            prompts=self._prompt_provider,
+            observer=self._retrieval_observer,
+            timeout_seconds=self.settings.llm.timeout_seconds or 20.0,
+        )
+
+    def safety_checker_agent(self, principal: Principal, workflow_id: UUID) -> SafetyCheckerAgent:
+        """Build Safety Checker agent (AGT-02) bound to principal and workflow."""
+        factory = self.clinical_tool_factory()
+        tools = factory.for_safety_checker(principal, workflow_id)
+        return SafetyCheckerAgent(
             llm=self._llm_provider,
             tools=tools,
             prompts=self._prompt_provider,
