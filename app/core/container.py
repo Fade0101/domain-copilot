@@ -27,6 +27,7 @@ from uuid import UUID
 from celery import Celery
 from sqlalchemy.engine import Engine
 
+from app.application.agents.documentation_drafter import DocumentationDrafterAgent
 from app.application.agents.guideline_researcher import GuidelineResearcherAgent
 from app.application.agents.safety_checker import SafetyCheckerAgent
 from app.application.auth.authorization import AuthorizationService
@@ -413,6 +414,20 @@ class Container:
         factory = self.clinical_tool_factory()
         tools = factory.for_safety_checker(principal, workflow_id)
         return SafetyCheckerAgent(
+            llm=self._llm_provider,
+            tools=tools,
+            prompts=self._prompt_provider,
+            observer=self._retrieval_observer,
+            timeout_seconds=self.settings.llm.timeout_seconds or 20.0,
+        )
+
+    def documentation_drafter_agent(
+        self, principal: Principal, workflow_id: UUID
+    ) -> DocumentationDrafterAgent:
+        """Build Documentation Drafter agent (AGT-03) bound to principal and workflow."""
+        factory = self.clinical_tool_factory()
+        tools = factory.for_documentation_drafter(principal, workflow_id)
+        return DocumentationDrafterAgent(
             llm=self._llm_provider,
             tools=tools,
             prompts=self._prompt_provider,
