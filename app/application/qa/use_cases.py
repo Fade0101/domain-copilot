@@ -12,6 +12,7 @@ from app.application.errors import KnowledgeUnavailableError, ProviderError
 from app.application.ports.llm import CompletionRequest, ILLMProvider, ModelOptions
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.system import IIdGenerator
+from app.application.qa.evidence_boundary import EVIDENCE_BOUNDARY_VERSION, instruction_signals
 from app.application.qa.grounding import (
     REFUSAL,
     decode_evidence_selection,
@@ -66,6 +67,17 @@ class AskUseCase:
                 fused_count=evidence.fused_count,
                 selected_chunk_ids=[str(item.hit.chunk_id) for item in evidence.selected],
             )
+            question_signals = instruction_signals(question)
+            quarantined = [
+                {"chunk_id": str(item.hit.chunk_id), "signals": list(signals)}
+                for item in evidence.selected
+                if (signals := instruction_signals(item.hit.snippet))
+            ]
+            telemetry.update(
+                evidence_boundary_version=EVIDENCE_BOUNDARY_VERSION,
+                question_instruction_signals=list(question_signals),
+                quarantined_chunks=quarantined,
+            )
             reason = "insufficient_evidence"
             chosen: tuple[RankedCandidate, ...] = ()
             if has_direct_conflict(evidence.selected):
@@ -103,6 +115,7 @@ class AskUseCase:
                 telemetry["prompt_id"] = prompt.id
                 telemetry["prompt_version"] = prompt.version
                 telemetry["usage"] = response.usage or {}
+                telemetry["rejected_tool_calls"] = len(response.tool_calls or [])
                 chosen = (
                     decode_evidence_selection(response.content, evidence.selected)
                     if not response.tool_calls
@@ -111,6 +124,18 @@ class AskUseCase:
                 if chosen and not has_explicit_clinical_evidence(question, chosen):
                     chosen = ()
                 reason = "model_refusal_or_invalid_grounding"
+            # Neither a valid model-selected UUID nor a source quotation confers
+            # instruction authority. Refuse the entire contaminated context,
+            # including when a compromised selector picks an apparently clean
+            # neighbour. Sources still traverse real retrieval and remain inert
+            # JSON data; no completion tool call is dispatched here.
+            if question_signals or quarantined:
+                chosen = ()
+                reason = (
+                    "untrusted_question_instructions"
+                    if question_signals
+                    else "untrusted_evidence_instructions"
+                )
             if not chosen:
                 telemetry["refusal_reason"] = reason
                 outcome = "refused"

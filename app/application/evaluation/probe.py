@@ -8,8 +8,11 @@ from contextvars import ContextVar
 from dataclasses import asdict
 from time import perf_counter
 from typing import Any
+from uuid import UUID
 
 from app.application.auth.context import Principal
+from app.application.evaluation.containment import ContainmentProbe
+from app.application.evaluation.data import GoldenCase
 from app.application.ports.audit import AuditEntry, IAuditSink
 from app.application.qa.use_cases import AskUseCase
 
@@ -29,15 +32,30 @@ class EvaluationAuditCapture(IAuditSink):
 
 
 class EvaluationProbe:
+    _containment: ContainmentProbe | None = None
+
     def __init__(
         self,
         ask: AskUseCase,
         capture: EvaluationAuditCapture,
         close: Callable[[], Awaitable[None]] | None = None,
+        *,
+        containment: ContainmentProbe | None = None,
     ) -> None:
         self._ask = ask
         self._capture = capture
         self._close = close
+        self._containment = containment
+
+    async def execute_case(
+        self, case: GoldenCase, principal: Principal, job_id: UUID
+    ) -> dict[str, Any]:
+        if not case.containment:
+            return await self.execute(case.query, principal)
+        if self._containment is None:
+            observed = await self.execute(case.query, principal)
+            return {**observed, "containment": {"error": "ContainmentProbeUnavailable"}}
+        return await self._containment.execute(case, principal, job_id, self.execute)
 
     async def aclose(self) -> None:
         if self._close is not None:

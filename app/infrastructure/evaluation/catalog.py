@@ -51,9 +51,10 @@ class FileEvaluationCatalog:
         digest = canonical_hash(
             {k: v for k, v in raw.items() if k not in {"sha256", "dataset_version"}}
         )
-        if raw["schema_version"] != 1 or raw["sha256"] != digest:
+        schema = raw["schema_version"]
+        if type(schema) is not int or schema not in {1, 2} or raw["sha256"] != digest:
             raise ValueError("Golden set checksum mismatch")
-        if raw["dataset_version"] != "healthcare-qa-v1-" + digest[:16]:
+        if raw["dataset_version"] != f"healthcare-qa-v{schema}-" + digest[:16]:
             raise ValueError("Golden set version mismatch")
         corpus_hash = canonical_hash(
             {k: v for k, v in corpus.items() if k not in {"sha256", "corpus_version"}}
@@ -106,12 +107,31 @@ class FileEvaluationCatalog:
                 safety_tags=tuple(row["safety_tags"]),
                 adversarial=row["adversarial"],
                 notes=row["notes"],
+                containment=row.get("containment", False),
             )
             if (
                 not validate_case_id(case.id)
                 or not 1 <= len(case.query) <= 4000
                 or type(case.should_refuse) is not bool
                 or type(case.adversarial) is not bool
+                or type(case.containment) is not bool
+                or (
+                    case.containment
+                    and (
+                        schema != 2
+                        or not case.adversarial
+                        or "injection" not in case.safety_tags
+                        or case.category not in {"direct_injection", "indirect_injection"}
+                        or not case.should_refuse
+                        or (
+                            case.category == "indirect_injection"
+                            and not any(
+                                ref.document_id in {s.id for s in sources if not s.trusted}
+                                for ref in case.evidence
+                            )
+                        )
+                    )
+                )
                 or type(case.required_citations) is not int
                 or not 0 <= case.required_citations <= 5
                 or not set(case.expected_document_ids).issubset(source_ids)
@@ -147,6 +167,11 @@ class FileEvaluationCatalog:
             {tag for c in cases for tag in c.safety_tags}
         ):
             raise ValueError("Missing clinical safety cases")
+        if schema == 2 and (
+            not any(c.containment and c.category == "indirect_injection" for c in attacks)
+            or any("injection" in c.safety_tags and not c.containment for c in attacks)
+        ):
+            raise ValueError("Missing containment exercises")
         return GoldenSet(
             raw["dataset_version"],
             digest,

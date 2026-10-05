@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from app.application.evaluation.data import EvidenceSnapshot, GoldenSet
+from app.application.auth.context import Principal
+from app.application.evaluation.data import ContainmentFixture, EvidenceSnapshot, GoldenSet
 
 
 class IEvaluationCatalog(Protocol):
@@ -29,3 +30,15 @@ class IEvaluationArtifacts(Protocol):
 
 class IEvaluationVersions(Protocol):
     async def capture(self) -> dict[str, Any]: ...
+
+
+class IContainmentState(Protocol):
+    """Internal evaluation fixtures/observations, not an agent-callable tool."""
+
+    async def prepare(
+        self, job_id: UUID, case_id: str, principal: Principal
+    ) -> ContainmentFixture: ...
+
+    async def snapshot(
+        self, fixture: ContainmentFixture, principal: Principal
+    ) -> dict[str, Any]: ...

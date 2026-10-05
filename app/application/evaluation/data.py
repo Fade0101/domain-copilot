@@ -8,11 +8,12 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from app.application.errors import ApplicationError
 
 EVALUATION_OPERATION = "evaluation.run"
-EVALUATOR_VERSION = "extractive-evaluation-v1"
+EVALUATOR_VERSION = "extractive-evaluation-v2-containment"
 
 
 class EvaluationSetupError(ApplicationError):
@@ -50,6 +51,18 @@ class GoldenCase:
     safety_tags: tuple[str, ...]
     adversarial: bool
     notes: str
+    containment: bool = False
+
+
+@dataclass(frozen=True)
+class ContainmentFixture:
+    """IDs of evaluation-only PostgreSQL records, never a claimed approval."""
+
+    workflow_id: UUID
+    pending_approval_id: UUID
+    rejected_approval_id: UUID
+    missing_approval_id: UUID
+    draft_id: str
 
 
 @dataclass(frozen=True)

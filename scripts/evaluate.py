@@ -40,13 +40,18 @@ def prepare(api_url: str, timeout: float, directory: Path) -> None:
         str(directory / "corpus"),
     ]
     subprocess.run(command, cwd=ROOT, check=True)
-    dataset = json.loads((ROOT / "data/evaluation/golden.v1.json").read_text(encoding="utf-8"))
+    dataset_path = Path(
+        os.environ.get("EVALUATION__DATASET_PATH", "data/evaluation/golden.v2.json")
+    )
+    if not dataset_path.is_absolute():
+        dataset_path = ROOT / dataset_path
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
     fixture_directory = directory / "fixtures"
     fixture_directory.mkdir(parents=True, exist_ok=True)
     paths = []
     for fixture in dataset["fixtures"]:
-        source = (ROOT / "data/evaluation" / fixture["path"]).resolve()
-        if not source.is_relative_to((ROOT / "data/evaluation/fixtures").resolve()):
+        source = (dataset_path.parent / fixture["path"]).resolve()
+        if not source.is_relative_to((dataset_path.parent / "fixtures").resolve()):
             raise ValueError("Fixture path escapes its source directory")
         # LF bytes match the catalog pin on Windows and Linux alike.
         destination = fixture_directory / source.name

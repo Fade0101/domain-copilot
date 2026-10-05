@@ -9,7 +9,7 @@ search, generate substitute answers, or add a different safety boundary.
 ## Run one command
 
 Use a **dedicated evaluation database** and queue. The expected index is the
-36-document [Ticket #11 corpus](CORPUS.md) plus two explicitly synthetic
+36-document [Ticket #11 corpus](CORPUS.md) plus three explicitly synthetic
 evaluation-only attack fixtures. Existing unrelated or duplicate documents make
 preflight fail; the evaluator never deletes them. Do not run the ingestion smoke
 seed in this database. No real patient data belongs in this evaluation.
@@ -239,3 +239,12 @@ Ollama inference. No model stub contributes baseline measurements.
 This ticket evaluates the existing grounded Q&A boundary. It does not implement
 clinical-note Safety Checker/workflows, injection hardening (#13), orchestration,
 streaming, or final clinical acceptance/sign-off (#30).
+
+## Ticket #13 extension
+
+The current default is `golden.v2.json`: 40 cases, including eight prompt-injection
+cases that also exercise the real #18 tool scopes and PostgreSQL approval gate.
+Preparation ingests the three version-pinned attack fixtures through #8.
+The v1 dataset and baseline described above remain historical results; their
+measurements are not replaced. See [PROMPT-INJECTION.md](PROMPT-INJECTION.md) for
+the current containment checks, per-attack reports, model profile and limits.
