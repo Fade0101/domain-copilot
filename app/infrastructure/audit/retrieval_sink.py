@@ -1,4 +1,4 @@
-"""Write retrieval audit events to the existing #6 trace/span models.
+"""Write retrieval and clinical-tool audit events to the existing #6 trace/span models.
 
 No new tables, pools, tracing port or tracing service. The existing logging
 audit sink remains the fallback if trace persistence is temporarily unavailable.
@@ -15,10 +15,14 @@ from uuid import UUID, uuid4
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.clinical_tools.contracts import ToolName
 from app.application.ports.audit import AuditEntry, IAuditSink
 from app.infrastructure.persistence.models import SpanModel, TraceModel
 
 logger = logging.getLogger("app.audit")
+_TOOL_ACTIONS = frozenset("clinical_tool." + name.value for name in ToolName) | {
+    "clinical_tool.unknown"
+}
 
 
 class PostgresRetrievalAuditSink(IAuditSink):
@@ -28,7 +32,8 @@ class PostgresRetrievalAuditSink(IAuditSink):
 
     async def record(self, entry: AuditEntry) -> None:
         await self._fallback.record(entry)
-        if entry.action not in {"retrieval.hybrid", "qa.ask"}:
+        is_tool = entry.action in _TOOL_ACTIONS
+        if entry.action not in {"retrieval.hybrid", "qa.ask"} and not is_tool:
             return
         try:
             telemetry = json.loads(entry.detail["telemetry"])
@@ -53,12 +58,26 @@ class PostgresRetrievalAuditSink(IAuditSink):
                             id=uuid4(),
                             trace_id=trace_id,
                             name=entry.action,
-                            step_type="retrieval" if entry.action == "retrieval.hybrid" else "llm",
-                            inputs={"query": entry.detail["query"]},
+                            step_type=(
+                                "tool"
+                                if is_tool
+                                else "retrieval"
+                                if entry.action == "retrieval.hybrid"
+                                else "llm"
+                            ),
+                            inputs=(
+                                {
+                                    "tool": telemetry.get("tool", "unknown"),
+                                    "agent_scope": telemetry.get("agent_scope"),
+                                    "workflow_id": telemetry.get("workflow_id"),
+                                }
+                                if is_tool
+                                else {"query": entry.detail["query"]}
+                            ),
                             outputs={**telemetry, "outcome": entry.outcome},
                             duration=telemetry.get("latency_ms", 0) / 1000,
                             tokens=usage.get("total_tokens"),
-                            status="ERROR" if entry.outcome == "error" else "OK",
+                            status="ERROR" if entry.outcome in {"error", "denied"} else "OK",
                         )
                     )
         except Exception:

@@ -8,7 +8,7 @@ is to be an exact mirror of the migrated schema, so that:
 * repositories can be written against mapped classes rather than ``text()``.
 
 **The migrations remain the source of truth.** These models were derived from the
-schema through ``95c7e8a12d40`` (Tickets #5, #6, #20, #9 and #8), verified against a
+schema through ``e18a9d70c342`` (Tickets #5, #6, #20, #9, #8 and #18), verified against a
 migrated database. ``tests/integration/
 test_orm_models.py`` asserts the two agree by running autogenerate against a
 migrated database and requiring an empty diff, so a model edited out of step with
@@ -391,6 +391,41 @@ class ApprovalModel(Base):
     status: Mapped[str] = mapped_column(_APPROVAL_STATUS_ENUM, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     timestamp: Mapped[datetime.datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class FinalClinicalNoteModel(Base):
+    """The immutable final note, written only by Ticket #18's approval guard.
+
+    ApprovalModel remains the decision/reviewed-text authority. A separate row
+    distinguishes a reviewed candidate from a successfully finalized note and
+    records exactly which draft, approval, actor and content were finalized.
+    """
+
+    __tablename__ = "final_clinical_notes"
+    __table_args__ = (
+        sa.UniqueConstraint("workflow_run_id", name="uq_final_note_workflow"),
+        sa.UniqueConstraint("approval_id", name="uq_final_note_approval"),
+        sa.CheckConstraint("draft_id ~ '^[0-9a-f]{64}$'", name="ck_final_note_draft_digest"),
+        sa.CheckConstraint(
+            "length(btrim(note)) > 0 AND length(note) <= 64000", name="ck_final_note_content"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
+    workflow_run_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("workflow_runs.id"), nullable=False
+    )
+    approval_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("approvals.id"), nullable=False
+    )
+    draft_id: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    note: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    finalized_by: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id"), nullable=False
+    )
+    finalized_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
 
