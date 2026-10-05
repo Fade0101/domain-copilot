@@ -31,6 +31,10 @@ class OllamaAdapter(ILLMProvider):
         self._default_model = default_model
         self._client = client or httpx.AsyncClient(base_url=self._base_url)
 
+    async def aclose(self) -> None:
+        """Release a worker job's HTTP pool before its asyncio event loop closes."""
+        await self._client.aclose()
+
     def _map_error(self, exc: Exception) -> Exception:
         """Map httpx specific exceptions to Application Provider errors."""
         if isinstance(exc, httpx.ConnectError | httpx.TimeoutException):

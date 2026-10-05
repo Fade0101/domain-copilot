@@ -15,6 +15,7 @@ from app.application.auth.use_cases import (
 )
 from app.application.documents.ingestion_service import IngestionService
 from app.application.documents.use_cases import RegisterDocumentUseCase
+from app.application.evaluation.service import EvaluationService
 from app.application.jobs.service import JobService
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
@@ -36,6 +37,10 @@ async def get_job_service() -> JobService:
 
 async def get_ingestion_service() -> IngestionService:
     return get_container().ingestion_service
+
+
+async def get_evaluation_service() -> EvaluationService:
+    return get_container().evaluation_service
 
 
 def get_register_document_use_case() -> RegisterDocumentUseCase:

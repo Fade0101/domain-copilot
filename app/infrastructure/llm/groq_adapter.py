@@ -31,6 +31,10 @@ class GroqAdapter(ILLMProvider):
         self._client = client or AsyncGroq(api_key=api_key)
         self._default_model = default_model
 
+    async def aclose(self) -> None:
+        """Release a worker job's HTTP pool before its asyncio event loop closes."""
+        await self._client.close()
+
     def _map_error(self, exc: Exception) -> Exception:
         """Map Groq specific exceptions to Application Provider errors."""
         if isinstance(exc, APIConnectionError):

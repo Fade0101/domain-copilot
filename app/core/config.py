@@ -42,6 +42,7 @@ class LLMSettings(BaseModel):
     max_tokens: int = 1024
     timeout_seconds: int = 60
     api_key: SecretStr | None = None
+    ollama_base_url: str = "http://localhost:11434"
 
 
 class EmbeddingSettings(BaseModel):
@@ -110,6 +111,13 @@ class IngestionSettings(BaseModel):
         if self.chunk_overlap >= self.chunk_tokens:
             raise ValueError("ingestion.chunk_overlap must be smaller than chunk_tokens")
         return self
+
+
+class EvaluationSettings(BaseModel):
+    """Server-owned versioned artifacts; never accept filesystem paths from an API caller."""
+
+    dataset_path: str = "data/evaluation/golden.v1.json"
+    corpus_manifest: str = "data/corpus/manifest.json"
 
 
 class OrchestrationLimits(BaseModel):
@@ -201,6 +209,7 @@ class Settings(BaseSettings):
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
     limits: OrchestrationLimits = Field(default_factory=OrchestrationLimits)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     prompts: PromptSettings = Field(default_factory=PromptSettings)
