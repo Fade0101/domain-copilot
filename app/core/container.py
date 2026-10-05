@@ -36,7 +36,6 @@ from app.application.auth.use_cases import (
     ResolvePrincipalUseCase,
 )
 from app.application.clinical_tools.execution import ClinicalToolFactory
-from app.application.clinical_tools.read_tools import ReadClinicalTools
 from app.application.documents.chunking import StructureAwareChunker
 from app.application.documents.embedding import IngestionEmbedder
 from app.application.documents.ingestion_handler import DocumentIngestionHandler
@@ -64,6 +63,7 @@ from app.application.ports.tokens import ITokenService
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.observability import RetrievalObserver
 from app.application.retrieval.use_cases import HybridRetrievalUseCase
+from app.core.clinical_tools import build_clinical_tool_factory
 from app.core.config import Settings, get_settings
 from app.core.evaluation import EvaluationComponents, build_evaluation_components
 from app.core.knowledge import build_hybrid_retrieval
@@ -73,7 +73,6 @@ from app.infrastructure.audit.logging_sink import LoggingAuditSink
 from app.infrastructure.audit.retrieval_sink import PostgresRetrievalAuditSink
 from app.infrastructure.auth.password_hasher import BcryptPasswordHasher
 from app.infrastructure.auth.token_service import JwtTokenService
-from app.infrastructure.clinical_tools.contracts import ClinicalToolContracts
 from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
 from app.infrastructure.ingestion.extractors import DocumentExtractor
 from app.infrastructure.llm.fallback import FallbackLLMProvider
@@ -90,7 +89,6 @@ from app.infrastructure.persistence.in_memory.user_repository import (
     InMemoryUserRepository,
 )
 from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
-from app.infrastructure.persistence.sql.clinical_note_writer import PostgresFinalClinicalNoteWriter
 from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestionStore
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
@@ -381,15 +379,14 @@ class Container:
         """Trusted agent wiring only; no user-selectable agent/role endpoint."""
         if self._database is None:
             raise ConfigurationError("DATABASE__URL is required for clinical tools.")
-        return ClinicalToolFactory(
+        return build_clinical_tool_factory(
             self._user_repository,
             self._authorization_service,
-            ClinicalToolContracts(),
-            ReadClinicalTools(self.hybrid_retrieval_use_case(), self.ask_use_case()),
-            PostgresFinalClinicalNoteWriter(
-                self._database.session_factory, self._authorization_service, self._clock
-            ),
+            self.hybrid_retrieval_use_case(),
+            self.ask_use_case(),
+            self._database.session_factory,
             self._retrieval_observer,
+            self._clock,
             self._id_generator,
         )
 

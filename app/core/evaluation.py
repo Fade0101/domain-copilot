@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.application.auth.authorization import AuthorizationService
+from app.application.evaluation.containment import CONTAINMENT_VERSION, ContainmentProbe
 from app.application.evaluation.handler import EvaluationJobHandler
 from app.application.evaluation.probe import EvaluationAuditCapture, EvaluationProbe
 from app.application.ports.embeddings import IEmbeddingProvider
@@ -14,13 +15,16 @@ from app.application.ports.jobs import IJobStore
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.retrieval import IRetrievalStore
 from app.application.ports.system import IClock
+from app.application.qa.evidence_boundary import EVIDENCE_BOUNDARY_VERSION
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.observability import RetrievalObserver
+from app.core.clinical_tools import build_clinical_tool_factory
 from app.core.config import Settings
 from app.core.knowledge import build_hybrid_retrieval
 from app.infrastructure.audit.logging_sink import LoggingAuditSink
 from app.infrastructure.audit.retrieval_sink import PostgresRetrievalAuditSink
 from app.infrastructure.evaluation.catalog import FileEvaluationCatalog
+from app.infrastructure.evaluation.containment_state import PostgresContainmentState
 from app.infrastructure.evaluation.store import (
     PostgresEvaluationArtifacts,
     PostgresEvaluationEvidence,
@@ -79,10 +83,11 @@ def build_evaluation_components(
         # reusable, HTTP connection pools are not: scope the LLM to this run.
         ids = UuidGenerator()
         llm = llm_factory()
+        hybrid = build_hybrid_retrieval(
+            settings, retrieval, embeddings, reranker, authorization, observer, ids
+        )
         ask = AskUseCase(
-            build_hybrid_retrieval(
-                settings, retrieval, embeddings, reranker, authorization, observer, ids
-            ),
+            hybrid,
             llm,
             YamlPromptProvider(settings.prompts.directory, strict=settings.prompts.strict),
             observer,
@@ -90,7 +95,24 @@ def build_evaluation_components(
             max_tokens=settings.llm.max_tokens,
             timeout_seconds=settings.llm.timeout_seconds,
         )
-        return EvaluationProbe(ask, capture, close=getattr(llm, "aclose", None))
+        return EvaluationProbe(
+            ask,
+            capture,
+            close=getattr(llm, "aclose", None),
+            containment=ContainmentProbe(
+                PostgresContainmentState(database.session_factory),
+                build_clinical_tool_factory(
+                    users,
+                    authorization,
+                    hybrid,
+                    ask,
+                    database.session_factory,
+                    observer,
+                    clock,
+                    ids,
+                ),
+            ),
+        )
 
     versions = RuntimeEvaluationVersions(
         {
@@ -115,6 +137,12 @@ def build_evaluation_components(
             },
             "retrieval": settings.retrieval.model_dump(),
             "prompt": {"id": "grounded_answer", "version": 2},
+            "containment": {
+                "probe_version": CONTAINMENT_VERSION,
+                "evidence_boundary_version": EVIDENCE_BOUNDARY_VERSION,
+                "tool_scope_binding": "trusted_server_only",
+                "approval_store": "postgresql",
+            },
             "execution": {"case_order": "dataset", "concurrency": 1},
         },
         root=Path(__file__).resolve().parents[2],

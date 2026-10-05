@@ -116,7 +116,7 @@ class IngestionSettings(BaseModel):
 class EvaluationSettings(BaseModel):
     """Server-owned versioned artifacts; never accept filesystem paths from an API caller."""
 
-    dataset_path: str = "data/evaluation/golden.v1.json"
+    dataset_path: str = "data/evaluation/golden.v2.json"
     corpus_manifest: str = "data/corpus/manifest.json"
 
 

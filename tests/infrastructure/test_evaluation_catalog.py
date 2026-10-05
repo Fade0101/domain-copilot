@@ -18,8 +18,10 @@ DATASET = ROOT / "data/evaluation/golden.v1.json"
 CORPUS = ROOT / "data/corpus/manifest.json"
 
 
-def test_actual_golden_set_counts_provenance_and_real_pdf_markdown_anchors() -> None:
-    dataset = FileEvaluationCatalog(str(DATASET), str(CORPUS)).load()
+@pytest.mark.parametrize("version", [1, 2])
+def test_actual_golden_set_counts_provenance_and_real_pdf_markdown_anchors(version: int) -> None:
+    dataset_path = DATASET.with_name(f"golden.v{version}.json")
+    dataset = FileEvaluationCatalog(str(dataset_path), str(CORPUS)).load()
     assert len([case for case in dataset.cases if not case.adversarial]) >= 25
     assert len([case for case in dataset.cases if case.adversarial]) >= 5
     assert len([case for case in dataset.cases if "injection" in case.safety_tags]) >= 3
@@ -43,13 +45,13 @@ def test_actual_golden_set_counts_provenance_and_real_pdf_markdown_anchors() -> 
         )
         formats.add(document["format"])
     assert formats == {"pdf", "markdown"}
-    raw = json.loads(DATASET.read_text(encoding="utf-8"))
+    raw = json.loads(dataset_path.read_text(encoding="utf-8"))
     for fixture in raw["fixtures"]:
         texts[fixture["id"]] = normalized(
             " ".join(
                 block.text
                 for block in MarkdownExtractor().extract(
-                    (DATASET.parent / fixture["path"]).read_bytes()
+                    (dataset_path.parent / fixture["path"]).read_bytes()
                 )
             )
         )
@@ -58,7 +60,10 @@ def test_actual_golden_set_counts_provenance_and_real_pdf_markdown_anchors() -> 
             assert normalized(reference.quote) in texts[reference.document_id], case.id
     assert dataset.corpus_version == manifest["corpus_version"]
     assert sum(source.trusted for source in dataset.sources) == 36
-    assert sum(not source.trusted for source in dataset.sources) == 2
+    assert sum(not source.trusted for source in dataset.sources) == (2 if version == 1 else 3)
+    if version == 2:
+        assert sum(case.containment for case in dataset.cases) == 8
+        assert all(case.containment for case in dataset.cases if "injection" in case.safety_tags)
 
 
 @pytest.mark.parametrize(
@@ -103,6 +108,30 @@ def test_invalid_or_unpinned_data_is_rejected(tmp_path: Path, fault: str) -> Non
     raw.update(sha256=digest, dataset_version="healthcare-qa-v1-" + digest[:16])
     if fault == "checksum":
         raw["cases"][0]["query"] += " unversioned edit"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(EvaluationSetupError):
+        FileEvaluationCatalog(str(path), str(CORPUS)).load()
+
+
+@pytest.mark.parametrize("fault", ["missing", "untyped", "normal_case", "clean_source"])
+def test_v2_cannot_silently_drop_or_fake_a_containment_exercise(tmp_path: Path, fault: str) -> None:
+    path = tmp_path / "golden.v2.json"
+    shutil.copytree(DATASET.parent / "fixtures", tmp_path / "fixtures")
+    raw = json.loads(DATASET.with_name("golden.v2.json").read_text(encoding="utf-8"))
+    attack = next(case for case in raw["cases"] if case["category"] == "indirect_injection")
+    if fault == "missing":
+        attack.pop("containment")
+    elif fault == "untyped":
+        attack["containment"] = "true"
+    elif fault == "normal_case":
+        raw["cases"][0]["containment"] = True
+    else:
+        attack["expected_document_ids"] = ["public-pmc11166373"]
+        attack["evidence"] = [{"document_id": "public-pmc11166373", "quote": "doxycycline"}]
+    digest = canonical_hash(
+        {key: value for key, value in raw.items() if key not in {"sha256", "dataset_version"}}
+    )
+    raw.update(sha256=digest, dataset_version="healthcare-qa-v2-" + digest[:16])
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(EvaluationSetupError):
         FileEvaluationCatalog(str(path), str(CORPUS)).load()

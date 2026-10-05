@@ -138,6 +138,7 @@ class EvaluationJobHandler:
                         "qa": sum(not case.adversarial for case in dataset.cases),
                         "adversarial": sum(case.adversarial for case in dataset.cases),
                         "injection": sum("injection" in case.safety_tags for case in dataset.cases),
+                        "containment": sum(case.containment for case in dataset.cases),
                     },
                     "resume_from": str(parent_id) if parent_id else None,
                 }
@@ -167,7 +168,7 @@ class EvaluationJobHandler:
                         current = await self._evidence.snapshot(dataset)
                         if current.fingerprint != snapshot.fingerprint:
                             raise EvaluationSetupError("CORPUS_CHANGED_DURING_EVALUATION")
-                        observed = await probe.execute(case.query, principal)
+                        observed = await probe.execute_case(case, principal, context.job_id)
                         saved = assess_case(case, observed, snapshot)
                     await self._artifacts.write(context.job_id, key, saved, self._clock.now())
                     return {"case_id": case.id, "passed": saved["passed"]}
