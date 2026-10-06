@@ -47,6 +47,15 @@ class Job:
     completed_at: datetime | None = None
     attempt_number: int = 0
     cancellation_requested: bool = False
+    idempotency_key: str | None = None
+    operation_version: str = "1"
+    max_attempts: int = 4
+    next_retry_at: datetime | None = None
+    lease_owner: str | None = None
+    lease_acquired_at: datetime | None = None
+    lease_expires_at: datetime | None = None
+    paused_at: datetime | None = None
+    last_dispatched_at: datetime | None = None
 
     @property
     def terminal(self) -> bool:
@@ -85,4 +94,9 @@ class Job:
             attempt_number=self.attempt_number + (target == JobState.STARTED),
             result_payload=result if target == JobState.COMPLETED else None,
             last_error=error if target == JobState.FAILED else None,
+            next_retry_at=None,
+            lease_owner=None if not _TRANSITIONS[target] else self.lease_owner,
+            lease_acquired_at=None if not _TRANSITIONS[target] else self.lease_acquired_at,
+            lease_expires_at=None if not _TRANSITIONS[target] else self.lease_expires_at,
+            paused_at=None,
         )
