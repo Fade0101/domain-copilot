@@ -23,7 +23,8 @@ def upgrade() -> None:
         "ck_jobs_attempts", "jobs", "attempt_number >= 0 AND max_attempts >= 1"
     )
     op.create_check_constraint(
-        "ck_jobs_lease", "jobs",
+        "ck_jobs_lease",
+        "jobs",
         "(lease_owner IS NULL AND lease_acquired_at IS NULL AND lease_expires_at IS NULL) "
         "OR (lease_owner IS NOT NULL AND lease_acquired_at IS NOT NULL "
         "AND lease_expires_at IS NOT NULL)",
@@ -31,7 +32,8 @@ def upgrade() -> None:
     # Reuse #19's existing unique job binding before a review snapshot exists.
     op.drop_constraint("ck_workflow_review_binding", "workflow_runs", type_="check")
     op.create_check_constraint(
-        "ck_workflow_review_binding", "workflow_runs",
+        "ck_workflow_review_binding",
+        "workflow_runs",
         "review_snapshot IS NULL OR approval_job_id IS NOT NULL",
     )
     op.execute("""
@@ -72,12 +74,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if op.get_bind().scalar(sa.text("""
+    if op.get_bind().scalar(
+        sa.text("""
         SELECT EXISTS(SELECT 1 FROM job_events WHERE event_type = 'job.manual_retry')
             OR EXISTS(SELECT 1 FROM jobs WHERE lease_owner IS NOT NULL)
             OR EXISTS(SELECT 1 FROM workflow_runs
                       WHERE approval_job_id IS NOT NULL AND review_snapshot IS NULL)
-    """)):
+    """)
+    ):
         raise RuntimeError("Cannot discard active recovery bindings, claims or retry audit")
     op.execute("DROP TRIGGER manual_retry_event_immutable ON job_events")
     op.execute("DROP FUNCTION guard_manual_retry_event()")
@@ -85,14 +89,19 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION guard_workflow_job_binding()")
     op.drop_constraint("ck_workflow_review_binding", "workflow_runs", type_="check")
     op.create_check_constraint(
-        "ck_workflow_review_binding", "workflow_runs",
+        "ck_workflow_review_binding",
+        "workflow_runs",
         "(review_snapshot IS NULL) = (approval_job_id IS NULL)",
     )
     op.drop_constraint("ck_jobs_lease", "jobs", type_="check")
     op.drop_constraint("ck_jobs_attempts", "jobs", type_="check")
     op.drop_index("ix_jobs_recovery", table_name="jobs")
     for name in (
-        "last_dispatched_at", "paused_at", "lease_expires_at", "lease_acquired_at",
-        "lease_owner", "operation_version",
+        "last_dispatched_at",
+        "paused_at",
+        "lease_expires_at",
+        "lease_acquired_at",
+        "lease_owner",
+        "operation_version",
     ):
         op.drop_column("jobs", name)

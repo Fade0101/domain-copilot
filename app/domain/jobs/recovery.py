@@ -32,9 +32,7 @@ class JobRetryPolicy:
         return timedelta(seconds=seconds)
 
 
-def retry_job(
-    job: Job, now: datetime, *, due: datetime, error: str, manual: bool = False
-) -> Job:
+def retry_job(job: Job, now: datetime, *, due: datetime, error: str, manual: bool = False) -> Job:
     required = JobState.FAILED if manual else JobState.STARTED
     if job.state != required or job.cancellation_requested:
         raise InvalidStateTransitionError("This job cannot be retried.")

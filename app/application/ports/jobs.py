@@ -8,9 +8,9 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
+from app.domain.auth.value_objects import UserId
 from app.domain.jobs.entities import Job, JobState
 from app.domain.jobs.events import JobEvent, JobEventPage
-from app.domain.auth.value_objects import UserId
 
 
 class IJobStore(Protocol):
@@ -32,9 +32,7 @@ class IJobStore(Protocol):
         self, job_id: UUID, now: datetime, due: datetime, *, error: str
     ) -> Job: ...
 
-    async def retry_failed(
-        self, job_id: UUID, actor_id: UserId, reason: str, now: datetime
-    ) -> Job:
+    async def retry_failed(self, job_id: UUID, actor_id: UserId, reason: str, now: datetime) -> Job:
         """Recheck stored admin authority; commit retry and immutable audit together."""
         ...
 

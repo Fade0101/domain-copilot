@@ -37,6 +37,7 @@ ACTOR = UUID(int=2)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _job(
     state: JobState = JobState.QUEUED,
     attempt: int = 1,
@@ -65,6 +66,7 @@ def _job(
 
 def _setup() -> tuple[FakeJobStore, JobService]:
     from app.application.jobs.diagnostic import DiagnosticJobHandler
+
     store = FakeJobStore()
     queue = FakeJobQueue(store)
     registry = JobHandlerRegistry([DiagnosticJobHandler()])
@@ -75,6 +77,7 @@ def _setup() -> tuple[FakeJobStore, JobService]:
 # ---------------------------------------------------------------------------
 # 1. Submission key (identity.py)
 # ---------------------------------------------------------------------------
+
 
 def test_submission_key_is_deterministic() -> None:
     key_a = submission_key("process", {"drug": "aspirin"}, "1", OWNER)
@@ -115,6 +118,7 @@ def test_submission_key_has_expected_prefix() -> None:
 # 2. Retry policy (recovery.py)
 # ---------------------------------------------------------------------------
 
+
 def test_retry_policy_first_attempt_uses_base_delay() -> None:
     policy = JobRetryPolicy(backoff_base_seconds=0.5, backoff_multiplier=2.0)
     assert policy.delay(1) == timedelta(seconds=0.5)
@@ -136,6 +140,7 @@ def test_retry_policy_caps_at_max_backoff() -> None:
 # 3. permits_execution (recovery.py)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("phase", list(EXECUTING_PHASES))
 def test_permits_execution_for_all_executing_phases(phase: str) -> None:
     assert permits_execution(phase)
@@ -153,6 +158,7 @@ def test_denies_execution_for_non_executing_phases(phase: str) -> None:
 # ---------------------------------------------------------------------------
 # 4. retry_job (recovery.py)
 # ---------------------------------------------------------------------------
+
 
 def test_retry_job_from_started_produces_queued() -> None:
     job = _job(state=JobState.STARTED, attempt=1, max_attempts=4)
@@ -193,6 +199,7 @@ def test_retry_job_manual_requires_failed_state() -> None:
 # 5. FakeJobStore.add_or_get — idempotency
 # ---------------------------------------------------------------------------
 
+
 async def test_add_or_get_accepts_first_submission() -> None:
     store, service = _setup()
     job = service.prepare("diagnostic", {}, user_id=OWNER)
@@ -219,11 +226,13 @@ async def test_add_or_get_returns_existing_on_duplicate_key() -> None:
 # 6. FakeJobStore.recoverable + recover_interrupted
 # ---------------------------------------------------------------------------
 
+
 async def test_recoverable_selects_expired_leased_started_jobs() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     # Manually put it in STARTED with an expired lease.
     from dataclasses import replace as dreplace
+
     now_plus_2 = NOW + timedelta(seconds=2)
     expired_lease = NOW - timedelta(seconds=1)
     store.jobs[job.id] = dreplace(
@@ -241,6 +250,7 @@ async def test_recoverable_excludes_paused_jobs() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     from dataclasses import replace as dreplace
+
     store.jobs[job.id] = dreplace(
         store.jobs[job.id],
         state=JobState.STARTED,
@@ -257,6 +267,7 @@ async def test_recover_interrupted_transitions_to_queued() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     from dataclasses import replace as dreplace
+
     expired_at = NOW - timedelta(seconds=1)
     store.jobs[job.id] = dreplace(
         store.jobs[job.id],
@@ -277,6 +288,7 @@ async def test_recover_interrupted_respects_cancellation() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     from dataclasses import replace as dreplace
+
     store.jobs[job.id] = dreplace(
         store.jobs[job.id],
         state=JobState.STARTED,
@@ -293,6 +305,7 @@ async def test_recover_interrupted_respects_cancellation() -> None:
 # ---------------------------------------------------------------------------
 # 7. FakeJobStore.retry_failed — manual retry RBAC
 # ---------------------------------------------------------------------------
+
 
 async def test_retry_failed_requires_manage_jobs_permission() -> None:
     store, service = _setup()
@@ -339,13 +352,12 @@ async def test_retry_failed_reason_must_be_at_least_3_chars() -> None:
 # 8. FakeJobStore.reserve_dispatch
 # ---------------------------------------------------------------------------
 
+
 async def test_reserve_dispatch_transitions_pending_to_queued() -> None:
     store, service = _setup()
     job = service.prepare("diagnostic", {}, user_id=OWNER)
     await store.add(job)  # Stays PENDING.
-    reserved = await store.reserve_dispatch(
-        job.id, NOW, timedelta(seconds=30)
-    )
+    reserved = await store.reserve_dispatch(job.id, NOW, timedelta(seconds=30))
     assert reserved is not None
     assert reserved.state == JobState.QUEUED
     assert reserved.last_dispatched_at == NOW
@@ -385,11 +397,13 @@ async def test_reserve_dispatch_skips_cancelled_jobs() -> None:
 # 9. FakeJobStore.pause + resume
 # ---------------------------------------------------------------------------
 
+
 async def test_pause_clears_lease_and_sets_paused_at() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     await store.transition(job.id, JobState.STARTED, NOW)
     from dataclasses import replace as dreplace
+
     store.jobs[job.id] = dreplace(
         store.jobs[job.id],
         lease_owner="worker-1",
@@ -398,6 +412,7 @@ async def test_pause_clears_lease_and_sets_paused_at() -> None:
     )
     await store.pause(job.id, NOW)
     paused = await store.get(job.id)
+    assert paused is not None
     assert paused.paused_at == NOW
     assert paused.lease_owner is None
 
@@ -407,6 +422,7 @@ async def test_resume_from_paused_clears_paused_at() -> None:
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     await store.transition(job.id, JobState.STARTED, NOW)
     from dataclasses import replace as dreplace
+
     store.jobs[job.id] = dreplace(store.jobs[job.id], paused_at=NOW)
     resumed = await store.resume(job.id, NOW + timedelta(seconds=10))
     assert resumed.paused_at is None
@@ -418,9 +434,8 @@ async def test_resume_cancels_if_flagged() -> None:
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     await store.transition(job.id, JobState.STARTED, NOW)
     from dataclasses import replace as dreplace
-    store.jobs[job.id] = dreplace(
-        store.jobs[job.id], paused_at=NOW, cancellation_requested=True
-    )
+
+    store.jobs[job.id] = dreplace(store.jobs[job.id], paused_at=NOW, cancellation_requested=True)
     result = await store.resume(job.id, NOW + timedelta(seconds=1))
     assert result.state == JobState.CANCELLED
 
@@ -436,10 +451,12 @@ async def test_resume_non_started_raises() -> None:
 # 10. Heartbeat
 # ---------------------------------------------------------------------------
 
+
 async def test_heartbeat_extends_lease_expiry() -> None:
     store, service = _setup()
     job = await service.submit("diagnostic", {}, user_id=OWNER)
     from dataclasses import replace as dreplace
+
     store.jobs[job.id] = dreplace(
         store.jobs[job.id],
         state=JobState.STARTED,
@@ -449,4 +466,6 @@ async def test_heartbeat_extends_lease_expiry() -> None:
     )
     await store.heartbeat(job.id, NOW + timedelta(seconds=30))
     updated = await store.get(job.id)
+    assert updated is not None
+    assert updated.lease_expires_at is not None
     assert updated.lease_expires_at > NOW + timedelta(seconds=5)

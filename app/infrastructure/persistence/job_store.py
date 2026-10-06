@@ -19,21 +19,25 @@ from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine, RowMapping, make_url
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.application.errors import (
-    ConfigurationError, JobCancelled, JobNotFoundError, JobStoreError,
-    PermissionDeniedError, UnknownPrincipalError,
+    ConfigurationError,
+    JobCancelled,
+    JobNotFoundError,
+    JobStoreError,
+    PermissionDeniedError,
+    UnknownPrincipalError,
 )
 from app.application.ports.audit import AuditEntry
 from app.application.ports.jobs import IJobStore
+from app.domain.auth.permissions import role_has_permission
+from app.domain.auth.value_objects import Permission, Role, UserId
 from app.domain.jobs.entities import Job, JobState
 from app.domain.jobs.events import JobEvent, JobEventPage, JobEventType
 from app.domain.jobs.recovery import EXECUTING_PHASES, permits_execution, retry_job
-from app.domain.auth.permissions import role_has_permission
-from app.domain.auth.value_objects import Permission, Role, UserId
 from app.domain.shared.errors import InvalidStateTransitionError, InvariantViolationError
 from app.infrastructure.persistence.job_events import (
     append_completion,
@@ -149,10 +153,15 @@ def _locked_job(connection: Connection, job_id: UUID) -> Job:
 def _execution_job(connection: Connection, job_id: UUID) -> tuple[Job, str | None]:
     # Same workflow-before-job row order as #18/#19. The worker advisory lock
     # remains separate and is always acquired without waiting for another owner.
-    workflow = connection.execute(
-        sa.select(_workflows.c.user_id, sa.cast(_workflows.c.state, sa.String).label("phase"))
-        .where(_workflows.c.approval_job_id == job_id).with_for_update()
-    ).mappings().first()
+    workflow = (
+        connection.execute(
+            sa.select(_workflows.c.user_id, sa.cast(_workflows.c.state, sa.String).label("phase"))
+            .where(_workflows.c.approval_job_id == job_id)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
     job = _locked_job(connection, job_id)
     if workflow is not None and workflow["user_id"] != job.user_id:
         raise InvalidStateTransitionError("Workflow and job ownership do not match.")
@@ -161,17 +170,27 @@ def _execution_job(connection: Connection, job_id: UUID) -> tuple[Job, str | Non
 
 def _save_job(connection: Connection, job: Job) -> None:
     values = job_insert_values(job)
-    for name in ("id", "user_id", "operation_type", "operation_version", "input_payload",
-                 "idempotency_key", "correlation_id", "created_at"):
+    for name in (
+        "id",
+        "user_id",
+        "operation_type",
+        "operation_version",
+        "input_payload",
+        "idempotency_key",
+        "correlation_id",
+        "created_at",
+    ):
         values.pop(name)
     connection.execute(_jobs.update().where(_jobs.c.id == job.id).values(**values))
 
 
 def _phase_eligible() -> sa.ColumnElement[bool]:
-    return ~sa.exists(sa.select(_workflows.c.id).where(
-        _workflows.c.approval_job_id == _jobs.c.id,
-        sa.cast(_workflows.c.state, sa.String).not_in(EXECUTING_PHASES),
-    ))
+    return ~sa.exists(
+        sa.select(_workflows.c.id).where(
+            _workflows.c.approval_job_id == _jobs.c.id,
+            sa.cast(_workflows.c.state, sa.String).not_in(EXECUTING_PHASES),
+        )
+    )
 
 
 def persist_transition(
@@ -266,25 +285,38 @@ class PostgresJobStore(IJobStore):
     async def add_or_get(self, job: Job) -> tuple[Job, bool]:
         def accept() -> tuple[Job, bool]:
             with self._transaction() as connection:
-                row = connection.execute(
-                    pg_insert(_jobs).values(**job_insert_values(job))
-                    .on_conflict_do_nothing(index_elements=[_jobs.c.idempotency_key])
-                    .returning(_jobs)
-                ).mappings().first()
+                row = (
+                    connection.execute(
+                        pg_insert(_jobs)
+                        .values(**job_insert_values(job))
+                        .on_conflict_do_nothing(index_elements=[_jobs.c.idempotency_key])
+                        .returning(_jobs)
+                    )
+                    .mappings()
+                    .first()
+                )
                 if row is not None:
                     accepted = _to_job(row)
                     append_progress(connection, accepted, job.created_at)
                     return accepted, True
-                existing = connection.execute(sa.select(_jobs).where(
-                    _jobs.c.idempotency_key == (job.idempotency_key or str(job.id))
-                )).mappings().one()
+                existing = (
+                    connection.execute(
+                        sa.select(_jobs).where(
+                            _jobs.c.idempotency_key == (job.idempotency_key or str(job.id))
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
                 return _to_job(existing), False
+
         return await self._call(accept)
 
     async def claim(self, job_id: UUID, now: datetime, lease_seconds: float) -> Job | None:
         if self._connection is None:
             raise ConfigurationError("Claim requires the PostgreSQL execution lock.")
         owner = f"{socket.gethostname()[:96]}:{os.getpid()}:{uuid4()}"
+
         def acquire() -> Job | None:
             with self._transaction() as connection:
                 job, phase = _execution_job(connection, job_id)
@@ -307,11 +339,16 @@ class PostgresJobStore(IJobStore):
                         return None
                 if job.state == JobState.QUEUED:
                     job = job.transition(JobState.STARTED, now)
-                job = replace(job, lease_owner=owner, lease_acquired_at=now,
-                              lease_expires_at=now + timedelta(seconds=lease_seconds))
+                job = replace(
+                    job,
+                    lease_owner=owner,
+                    lease_acquired_at=now,
+                    lease_expires_at=now + timedelta(seconds=lease_seconds),
+                )
                 _save_job(connection, job)
                 append_progress(connection, job, now)
                 return job
+
         claimed = await self._call(acquire)
         if claimed is not None:
             self._lease_owner = owner
@@ -321,14 +358,19 @@ class PostgresJobStore(IJobStore):
     async def heartbeat(self, job_id: UUID, now: datetime) -> None:
         if self._lease_owner is None:
             return
+
         def touch() -> None:
             with self._transaction() as connection:
                 job = _locked_job(connection, job_id)
                 if job.terminal:
                     return
                 self._fence(job)
-                connection.execute(_jobs.update().where(_jobs.c.id == job_id).values(
-                    lease_expires_at=now + timedelta(seconds=self._lease_seconds)))
+                connection.execute(
+                    _jobs.update()
+                    .where(_jobs.c.id == job_id)
+                    .values(lease_expires_at=now + timedelta(seconds=self._lease_seconds))
+                )
+
         await self._call(touch)
 
     async def pause(self, job_id: UUID, now: datetime) -> None:
@@ -338,10 +380,17 @@ class PostgresJobStore(IJobStore):
                 if job.terminal:
                     return
                 self._fence(job)
-                job = replace(job, paused_at=now, lease_owner=None, lease_acquired_at=None,
-                              lease_expires_at=None, updated_at=now)
+                job = replace(
+                    job,
+                    paused_at=now,
+                    lease_owner=None,
+                    lease_acquired_at=None,
+                    lease_expires_at=None,
+                    updated_at=now,
+                )
                 _save_job(connection, job)
                 append_progress(connection, job, now, paused=True)
+
         await self._call(save)
 
     async def schedule_retry(
@@ -361,17 +410,22 @@ class PostgresJobStore(IJobStore):
                 _save_job(connection, job)
                 append_progress(connection, job, now, retry_scheduled=not job.terminal)
                 return job
+
         return await self._call(save)
 
-    async def retry_failed(
-        self, job_id: UUID, actor_id: UserId, reason: str, now: datetime
-    ) -> Job:
+    async def retry_failed(self, job_id: UUID, actor_id: UserId, reason: str, now: datetime) -> Job:
         def retry() -> Job:
             with self._transaction() as connection:
                 job, phase = _execution_job(connection, job_id)
-                actor = connection.execute(sa.select(_users.c.role).where(
-                    _users.c.id == UUID(actor_id.value)).with_for_update(read=True)
-                ).mappings().first()
+                actor = (
+                    connection.execute(
+                        sa.select(_users.c.role)
+                        .where(_users.c.id == UUID(actor_id.value))
+                        .with_for_update(read=True)
+                    )
+                    .mappings()
+                    .first()
+                )
                 if actor is None:
                     raise UnknownPrincipalError("Retry actor is no longer present.")
                 role = Role(actor["role"])
@@ -380,25 +434,42 @@ class PostgresJobStore(IJobStore):
                 if not permits_execution(phase):
                     raise InvalidStateTransitionError("This workflow phase cannot be retried.")
                 if not isinstance(reason, str) or not 3 <= len(reason.strip()) <= 4000:
-                    raise InvariantViolationError("Retry requires a reason of 3 to 4000 characters.")
+                    raise InvariantViolationError(
+                        "Retry requires a reason of 3 to 4000 characters."
+                    )
                 job = retry_job(job, now, due=now, error="JOB_MANUAL_RETRY", manual=True)
                 _save_job(connection, job)
                 entry = AuditEntry(
-                    actor_id=actor_id.value, actor_role=role.value, action="job.manual_retry",
-                    outcome="QUEUED", occurred_at=now, resource_type="job", resource_id=str(job.id),
+                    actor_id=actor_id.value,
+                    actor_role=role.value,
+                    action="job.manual_retry",
+                    outcome="QUEUED",
+                    occurred_at=now,
+                    resource_type="job",
+                    resource_id=str(job.id),
                     correlation_id=str(job.correlation_id) if job.correlation_id else None,
-                    detail={"reason": reason.strip(), "attempt_number": str(job.attempt_number),
-                            "max_attempts": str(job.max_attempts)},
+                    detail={
+                        "reason": reason.strip(),
+                        "attempt_number": str(job.attempt_number),
+                        "max_attempts": str(job.max_attempts),
+                    },
                 )
-                append_event(connection, job.id, "job.manual_retry",
-                             json.loads(json.dumps(asdict(entry), default=str)), now)
+                append_event(
+                    connection,
+                    job.id,
+                    "job.manual_retry",
+                    json.loads(json.dumps(asdict(entry), default=str)),
+                    now,
+                )
                 append_progress(connection, job, now, manual_retry=True)
                 return job
+
         return await self._call(retry)
 
     async def resume(self, job_id: UUID, now: datetime) -> Job:
         if self._connection is None:
             raise ConfigurationError("Resume requires the PostgreSQL execution lock.")
+
         def save() -> Job:
             with self._transaction() as connection:
                 job, phase = _execution_job(connection, job_id)
@@ -413,29 +484,45 @@ class PostgresJobStore(IJobStore):
                 _save_job(connection, job)
                 append_progress(connection, job, now, resumed=True)
                 return job
+
         return await self._call(save)
 
     async def recoverable(self, now: datetime, limit: int) -> list[UUID]:
         def read() -> list[UUID]:
             with self._transaction() as connection:
-                return list(connection.scalars(sa.select(_jobs.c.id).where(
-                    _jobs.c.operation_type.is_not(None), _phase_eligible(),
-                    _jobs.c.state == JobState.STARTED, _jobs.c.lease_owner.is_not(None),
-                    _jobs.c.lease_expires_at <= now, _jobs.c.paused_at.is_(None),
-                ).order_by(_jobs.c.lease_expires_at, _jobs.c.id).limit(limit)))
+                return list(
+                    connection.scalars(
+                        sa.select(_jobs.c.id)
+                        .where(
+                            _jobs.c.operation_type.is_not(None),
+                            _phase_eligible(),
+                            _jobs.c.state == JobState.STARTED,
+                            _jobs.c.lease_owner.is_not(None),
+                            _jobs.c.lease_expires_at <= now,
+                            _jobs.c.paused_at.is_(None),
+                        )
+                        .order_by(_jobs.c.lease_expires_at, _jobs.c.id)
+                        .limit(limit)
+                    )
+                )
+
         return await self._call(read)
 
-    async def recover_interrupted(
-        self, job_id: UUID, now: datetime, due: datetime
-    ) -> Job | None:
+    async def recover_interrupted(self, job_id: UUID, now: datetime, due: datetime) -> Job | None:
         if self._connection is None:
             raise ConfigurationError("Recovery requires the PostgreSQL execution lock.")
+
         def recover() -> Job | None:
             with self._transaction() as connection:
                 job, phase = _execution_job(connection, job_id)
-                if (job.state != JobState.STARTED or not permits_execution(phase)
-                    or job.paused_at is not None or job.lease_owner is None
-                    or job.lease_expires_at is None or job.lease_expires_at > now):
+                if (
+                    job.state != JobState.STARTED
+                    or not permits_execution(phase)
+                    or job.paused_at is not None
+                    or job.lease_owner is None
+                    or job.lease_expires_at is None
+                    or job.lease_expires_at > now
+                ):
                     return None
                 if job.cancellation_requested:
                     return persist_transition(connection, job_id, JobState.CANCELLED, now)
@@ -443,6 +530,7 @@ class PostgresJobStore(IJobStore):
                 _save_job(connection, job)
                 append_progress(connection, job, now, recovered=True)
                 return job
+
         return await self._call(recover)
 
     async def reserve_dispatch(
@@ -451,12 +539,18 @@ class PostgresJobStore(IJobStore):
         def reserve() -> Job | None:
             with self._transaction() as connection:
                 job, phase = _execution_job(connection, job_id)
-                if (job.state not in {JobState.PENDING, JobState.QUEUED}
-                    or job.cancellation_requested or not permits_execution(phase)
-                    or (job.next_retry_at is not None and job.next_retry_at > now)):
+                if (
+                    job.state not in {JobState.PENDING, JobState.QUEUED}
+                    or job.cancellation_requested
+                    or not permits_execution(phase)
+                    or (job.next_retry_at is not None and job.next_retry_at > now)
+                ):
                     return None
-                if (not force and job.last_dispatched_at is not None
-                    and job.last_dispatched_at + interval > now):
+                if (
+                    not force
+                    and job.last_dispatched_at is not None
+                    and job.last_dispatched_at + interval > now
+                ):
                     return None
                 if job.state == JobState.PENDING:
                     job = job.transition(JobState.QUEUED, now)
@@ -464,6 +558,7 @@ class PostgresJobStore(IJobStore):
                 job = replace(job, last_dispatched_at=now)
                 _save_job(connection, job)
                 return job
+
         return await self._call(reserve)
 
     async def get(self, job_id: UUID) -> Job | None:
