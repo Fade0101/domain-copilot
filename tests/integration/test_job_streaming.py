@@ -396,12 +396,15 @@ async def read():
         engine.dispose()
 asyncio.run(read())
 """
+    creation_flags = 0
+    if sys.platform == "win32":
+        creation_flags = subprocess.CREATE_NO_WINDOW
     process = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-c", script],
         capture_output=True,
         timeout=15,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        creationflags=creation_flags,
         env={
             **os.environ,
             "T21_REPLAY_DATABASE_URL": jobs.url,
