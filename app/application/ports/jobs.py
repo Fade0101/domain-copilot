@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.jobs.entities import Job, JobState
+from app.domain.jobs.events import JobEvent, JobEventPage
 
 
 class IJobStore(Protocol):
@@ -36,6 +37,21 @@ class IJobStore(Protocol):
         """Return PENDING/QUEUED IDs in creation order, excluding legacy untyped rows."""
         ...
 
+    async def events_after(self, job_id: UUID, sequence: int, limit: int) -> JobEventPage:
+        """Read committed public events in order, with state read before the page."""
+        ...
+
+    async def append_token(self, job_id: UUID, delta: str, now: datetime) -> JobEvent:
+        """Append only for an opted-in STARTED job; lock and check cancellation."""
+        ...
+
+    async def request_cancel(self, job_id: UUID, now: datetime) -> Job:
+        """Persist cancellation; settle idle jobs under the existing execution lock.
+
+        Active workers stop cooperatively. A committed terminal state is a no-op.
+        """
+        ...
+
     def lock(self, job_id: UUID) -> AbstractAsyncContextManager[IJobStore | None]:
         """Yield a store under an exclusive execution lock, or None if already held.
 
@@ -49,6 +65,15 @@ class IJobContext(Protocol):
     user_id: UUID
     correlation_id: UUID | None
     payload: dict[str, Any]
+    streaming: bool
+
+    async def check_cancelled(self) -> None:
+        """Read the authoritative flag; raise JobCancelled when requested."""
+        ...
+
+    async def emit_token(self, delta: str) -> None:
+        """Persist a token before any observer may receive it."""
+        ...
 
     async def step(
         self, name: str, action: Callable[[], Awaitable[dict[str, Any]]]

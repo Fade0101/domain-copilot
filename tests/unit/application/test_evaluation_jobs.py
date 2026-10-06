@@ -59,7 +59,7 @@ async def test_cancel_between_cases_and_restart_reuses_results_in_a_new_job() ->
     assert h.artifacts.values[(child.id, "case/qa-one")]["reused_from_job_id"] == str(job.id)
 
 
-async def test_queued_cancel_still_follows_queued_started_cancelled() -> None:
+async def test_queued_cancel_settles_without_consuming_a_worker() -> None:
     h = evaluation_harness()
     job = await h.submit()
     await h.service.cancel(job.id, Principal.from_user(USER))
@@ -67,7 +67,6 @@ async def test_queued_cancel_still_follows_queued_started_cancelled() -> None:
     assert h.store.transitions == [
         JobState.PENDING,
         JobState.QUEUED,
-        JobState.STARTED,
         JobState.CANCELLED,
     ]
     assert not h.probe.calls

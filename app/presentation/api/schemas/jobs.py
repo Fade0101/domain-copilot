@@ -38,6 +38,7 @@ class JobStatusResponse(ResourceAccessResponse):
     updated_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    cancellation_requested: bool
 
     @classmethod
     def from_job(cls, job: Job) -> JobStatusResponse:
@@ -55,4 +56,5 @@ class JobStatusResponse(ResourceAccessResponse):
             updated_at=job.updated_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
+            cancellation_requested=job.cancellation_requested,
         )

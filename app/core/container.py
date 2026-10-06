@@ -50,6 +50,7 @@ from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.errors import ConfigurationError, ProviderConfigurationError
 from app.application.evaluation.service import EvaluationService
 from app.application.jobs.diagnostic import DiagnosticJobHandler
+from app.application.jobs.generation import GenerationJobHandler
 from app.application.jobs.registry import JobHandlerRegistry
 from app.application.jobs.runner import JobRunner
 from app.application.jobs.service import JobService
@@ -643,6 +644,7 @@ def build_job_runtime(
         )
         handlers = [
             DiagnosticJobHandler(),
+            GenerationJobHandler(lambda: build_llm_provider(settings)),
             evaluation_components.handler,
             DocumentIngestionHandler(
                 ingestion_store,
@@ -679,6 +681,10 @@ def build_job_runtime(
         clock,
         UuidGenerator(),
         max_payload_bytes=settings.queue.max_payload_bytes,
+        authorization=AuthorizationService(SqlOwnershipQuery(database.session_factory))
+        if database is not None
+        else None,
+        users=SqlUserRepository(database.session_factory) if database is not None else None,
     )
     register_job_task(celery_app, runner)
     ingestion = (

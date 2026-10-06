@@ -24,28 +24,37 @@ class FallbackLLMProvider(ILLMProvider):
             return await self._secondary.complete(request)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
+        primary_iter = self._primary.stream(request)
         try:
-            # We must buffer the first chunk or iterator to catch connection/auth errors
-            # before we yield anything. If the initial connection fails with a transient
-            # error, we can fallback.
-            primary_iter = self._primary.stream(request)
+            try:
+                first_chunk = await anext(primary_iter)
+            except StopAsyncIteration:
+                return
+            except (ProviderUnavailableError, ProviderRateLimitError):
+                pass
+            else:
+                yield first_chunk
+                # Once output is observable, a failure must propagate. Starting
+                # another completion would mix two answers in durable history.
+                async for chunk in primary_iter:
+                    yield chunk
+                return
+        finally:
+            close = getattr(primary_iter, "aclose", None)
+            if close is not None:
+                await close()
 
-            # Use anext to grab the first item, allowing us to catch exceptions.
-            # We catch StopAsyncIteration in case the stream is empty, which is fine.
-            first_chunk = await anext(primary_iter)
-            yield first_chunk
-
-            async for chunk in primary_iter:
+        secondary_iter = self._secondary.stream(request)
+        try:
+            async for chunk in secondary_iter:
                 yield chunk
+        finally:
+            close = getattr(secondary_iter, "aclose", None)
+            if close is not None:
+                await close()
 
-            return
-
-        except StopAsyncIteration:
-            return
-        except (ProviderUnavailableError, ProviderRateLimitError):
-            # Fallback to secondary if primary fails immediately
-            pass
-
-        # If we reached here, primary failed with a transient error BEFORE yielding chunks
-        async for chunk in self._secondary.stream(request):
-            yield chunk
+    async def aclose(self) -> None:
+        for provider in (self._primary, self._secondary):
+            close = getattr(provider, "aclose", None)
+            if close is not None:
+                await close()

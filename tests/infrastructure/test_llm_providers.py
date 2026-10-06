@@ -117,6 +117,49 @@ async def test_fallback_no_fallback_on_non_transient():
     assert secondary.last_request is None
 
 
+async def test_fallback_does_not_mix_secondary_output_after_primary_token():
+    class PartialProvider(FakeILLMProvider):
+        async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(delta="primary text")
+            raise ProviderUnavailableError("stream disconnected")
+
+    secondary = FakeILLMProvider()
+    fallback = FallbackLLMProvider(PartialProvider(), secondary)
+    request = CompletionRequest(messages=[{"role": "user", "content": "Hello"}])
+    stream = fallback.stream(request)
+    assert (await anext(stream)).delta == "primary text"
+    with pytest.raises(ProviderUnavailableError):
+        await anext(stream)
+    assert secondary.last_request is None
+
+
+async def test_fallback_closes_active_iterator_when_consumer_disconnects():
+    closed = []
+
+    class CancellableProvider(FakeILLMProvider):
+        async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
+            try:
+                yield StreamChunk(delta="one")
+                yield StreamChunk(delta="two")
+            finally:
+                closed.append(True)
+
+    fallback = FallbackLLMProvider(CancellableProvider(), FakeILLMProvider())
+    stream = fallback.stream(CompletionRequest(messages=[]))
+    await anext(stream)
+    await stream.aclose()
+    assert closed == [True]
+
+
+async def test_fallback_closes_both_owned_provider_clients():
+    primary, secondary = FakeILLMProvider(), FakeILLMProvider()
+    primary.aclose = AsyncMock()
+    secondary.aclose = AsyncMock()
+    await FallbackLLMProvider(primary, secondary).aclose()
+    primary.aclose.assert_awaited_once()
+    secondary.aclose.assert_awaited_once()
+
+
 # --- GroqAdapter tests ---
 
 

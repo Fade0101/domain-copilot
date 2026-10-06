@@ -10,7 +10,9 @@ import sqlalchemy as sa
 
 from app.application.errors import JobPaused
 from app.application.jobs.diagnostic import DiagnosticJobHandler
+from app.application.jobs.generation import GenerationJobHandler
 from app.application.ports.jobs import IJobContext, IJobHandler
+from app.application.ports.llm import CompletionRequest, CompletionResponse, StreamChunk
 from app.core.config import get_settings
 from app.core.container import build_job_runtime
 
@@ -74,8 +76,50 @@ class PauseProbe(DiagnosticJobHandler):
         raise JobPaused()
 
 
+class StreamingProvider:
+    """Deterministic provider I/O; the production handler/store/task remain real."""
+
+    def __init__(self, url: str) -> None:
+        self.engine = sa.create_engine(url, hide_parameters=True)
+
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        return CompletionResponse(content="First second", usage={"total_tokens": 2})
+
+    async def stream(self, request: CompletionRequest):
+        prompt = request.messages[0]["content"]
+        yield StreamChunk(delta="First")
+        if prompt.startswith("hold:"):
+
+            def released() -> bool:
+                with self.engine.connect() as connection:
+                    return bool(
+                        connection.scalar(
+                            sa.text(
+                                "SELECT r.allowed FROM job_test_release r JOIN jobs j "
+                                "ON j.id=r.job_id WHERE j.input_payload->>'prompt'=:prompt"
+                            ),
+                            {"prompt": prompt},
+                        )
+                    )
+
+            while not await asyncio.to_thread(released):
+                await asyncio.sleep(0.05)
+        if prompt == "fail-after-token":
+            raise RuntimeError("private provider failure")
+        yield StreamChunk(delta=" second", finish_reason="stop", usage={"total_tokens": 2})
+
+    async def aclose(self) -> None:
+        await asyncio.to_thread(self.engine.dispose)
+
+
 def handlers(url: str) -> list[IJobHandler]:
-    return [DiagnosticJobHandler(), CheckpointProbe(url), FailureProbe(), PauseProbe()]
+    return [
+        DiagnosticJobHandler(),
+        CheckpointProbe(url),
+        FailureProbe(),
+        PauseProbe(),
+        GenerationJobHandler(lambda: StreamingProvider(url)),
+    ]
 
 
 if __name__ == "__main__":

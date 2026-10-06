@@ -21,8 +21,8 @@ class JobState(StrEnum):
 
 
 _TRANSITIONS = {
-    JobState.PENDING: frozenset({JobState.QUEUED}),
-    JobState.QUEUED: frozenset({JobState.STARTED}),
+    JobState.PENDING: frozenset({JobState.QUEUED, JobState.CANCELLED}),
+    JobState.QUEUED: frozenset({JobState.STARTED, JobState.CANCELLED}),
     JobState.STARTED: frozenset({JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED}),
     JobState.COMPLETED: frozenset(),
     JobState.FAILED: frozenset(),
@@ -52,6 +52,16 @@ class Job:
     def terminal(self) -> bool:
         return not _TRANSITIONS[self.state]
 
+    @property
+    def streaming(self) -> bool:
+        """Opt-in is part of the validated, durable operation input."""
+        return self.input_payload.get("stream") is True
+
+    def request_cancel(self, now: datetime) -> Job:
+        if self.terminal or self.cancellation_requested:
+            return self
+        return replace(self, cancellation_requested=True, updated_at=now)
+
     def transition(
         self,
         target: JobState,
@@ -62,6 +72,10 @@ class Job:
     ) -> Job:
         if target not in _TRANSITIONS[self.state]:
             raise InvalidStateTransitionError(f"Cannot move job from {self.state} to {target}.")
+        # The store applies this rule to the row locked in its transaction. A
+        # committed cancellation request wins over a later success or failure.
+        if self.cancellation_requested and target in {JobState.COMPLETED, JobState.FAILED}:
+            target = JobState.CANCELLED
         return replace(
             self,
             state=target,

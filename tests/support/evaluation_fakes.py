@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -134,7 +134,7 @@ class FakeArtifacts:
             await self.request_cancel(job_id, now)
 
     async def request_cancel(self, job_id: UUID, now: datetime) -> None:
-        self.jobs.jobs[job_id] = replace(self.jobs.jobs[job_id], cancellation_requested=True)
+        await self.jobs.request_cancel(job_id, now)
 
 
 class WorkerCrash(BaseException):

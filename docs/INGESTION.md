@@ -123,8 +123,10 @@ extractable text are accepted only far enough to produce a queryable failure at
 `extract`. Storage unavailability returns a fixed 503. Once the document/source/job
 transaction commits, an unavailable Redis broker does not undo the accepted job.
 
-Progress uses polling in this ticket. SSE and cancellation transport remain
-Ticket #21.
+Polling remains available. Ticket #21 also exposes authenticated
+`GET /api/v1/jobs/{id}/stream` for durable progress/replay and
+`POST /api/v1/jobs/{id}/cancel` for persisted cooperative cancellation.
+Disconnecting SSE does not cancel ingestion; see [JOB_STREAMING.md](./JOB_STREAMING.md).
 
 ## Chunking and citations
 

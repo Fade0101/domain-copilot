@@ -49,7 +49,12 @@ from app.domain.approvals.entities import ApprovalAction, ApprovalDecision, Appr
 from app.domain.auth.value_objects import Permission, ResourceType, Role, UserId
 from app.domain.jobs.entities import Job, JobState
 from app.domain.shared.errors import InvalidStateTransitionError, InvariantViolationError
-from app.infrastructure.persistence.job_store import job_execution_lock_key, job_from_mapping
+from app.infrastructure.persistence.job_events import append_progress, next_sequence
+from app.infrastructure.persistence.job_store import (
+    job_execution_lock_key,
+    job_from_mapping,
+    persist_transition,
+)
 from app.infrastructure.persistence.models import (
     ApprovalModel,
     FinalClinicalNoteModel,
@@ -178,17 +183,12 @@ class PostgresApprovalStore(IApprovalStore):
         *,
         identifier: UUID | None = None,
     ) -> JobEventModel:
-        # Every writer here holds the job row lock. Reuse #6's monotonic event
-        # sequence and uniqueness; #21's event transport is not implemented here.
-        last = await session.scalar(
-            sa.select(sa.func.max(JobEventModel.sequence_number)).where(
-                JobEventModel.job_id == job_id
-            )
-        )
+        # Share the job row lock and event sequence with progress/token writers.
+        sequence = await session.run_sync(lambda sync: next_sequence(sync.connection(), job_id))
         event = JobEventModel(
             id=identifier or uuid4(),
             job_id=job_id,
-            sequence_number=(last or 0) + 1,
+            sequence_number=sequence,
             event_type=event_type,
             payload=payload,
             created_at=now,
@@ -244,6 +244,15 @@ class PostgresApprovalStore(IApprovalStore):
                 )
                 await self._append_event(
                     session, job_id, REVIEW_REQUESTED, _json_object(asdict(entry)), now
+                )
+                await session.run_sync(
+                    lambda sync: append_progress(
+                        sync.connection(),
+                        job,
+                        now,
+                        workflow_id=str(workflow_id),
+                        workflow_state=workflow.state,
+                    )
                 )
                 record = await self._record(session, workflow)
             return record
@@ -449,24 +458,19 @@ class PostgresApprovalStore(IApprovalStore):
                 )
                 workflow.state = decision.status.value
                 if decision.status == ApprovalStatus.REJECTED:
-                    completed = job.transition(
-                        JobState.COMPLETED,
-                        decision.created_at,
-                        result={
-                            "workflow_id": str(workflow.id),
-                            "workflow_state": "REJECTED",
-                            "approval_id": str(decision.id),
-                        },
-                    )
-                    await session.execute(
-                        sa.update(JobModel)
-                        .where(JobModel.id == job.id)
-                        .values(
-                            state=completed.state.value,
-                            result_payload=completed.result_payload,
-                            updated_at=completed.updated_at,
-                            completed_at=completed.completed_at,
-                            last_error=completed.last_error,
+                    await session.run_sync(
+                        lambda sync: persist_transition(
+                            sync.connection(),
+                            job.id,
+                            JobState.COMPLETED,
+                            decision.created_at,
+                            result={
+                                "workflow_id": str(workflow.id),
+                                "workflow_state": "REJECTED",
+                                "approval_id": str(decision.id),
+                            },
+                            workflow_id=str(workflow.id),
+                            workflow_state=workflow.state,
                         )
                     )
                 else:
@@ -485,6 +489,15 @@ class PostgresApprovalStore(IApprovalStore):
                         _json_object(asdict(signal)),
                         decision.created_at,
                         identifier=signal.event_id,
+                    )
+                    await session.run_sync(
+                        lambda sync: append_progress(
+                            sync.connection(),
+                            job,
+                            decision.created_at,
+                            workflow_id=str(workflow.id),
+                            workflow_state=workflow.state,
+                        )
                     )
                 await session.flush()
                 result = DecisionResult(await self._record(session, workflow), replayed=False)

@@ -23,24 +23,32 @@ class JobContext(IJobContext):
         self.user_id = job.user_id
         self.correlation_id = job.correlation_id
         self.payload = deepcopy(job.input_payload)
+        self.streaming = job.streaming
         self._checkpoints = deepcopy(job.checkpoint_data)
         self._store = store
         self._clock = clock
         self._limit = max_checkpoint_bytes
+
+    async def check_cancelled(self) -> None:
+        job = await self._store.get(self.job_id)
+        if job is None:
+            raise JobNotFoundError("Job not found.")
+        if job.cancellation_requested:
+            raise JobCancelled()
+
+    async def emit_token(self, delta: str) -> None:
+        await self._store.append_token(self.job_id, delta, self._clock.now())
 
     async def step(
         self, name: str, action: Callable[[], Awaitable[dict[str, Any]]]
     ) -> dict[str, Any]:
         if not name or len(name) > 128:
             raise InvariantViolationError("Checkpoint step names must contain 1 to 128 characters.")
-        job = await self._store.get(self.job_id)
-        if job is None:
-            raise JobNotFoundError("Job not found.")
-        if job.cancellation_requested:
-            raise JobCancelled()
+        await self.check_cancelled()
         if name in self._checkpoints:
             return deepcopy(self._checkpoints[name])
         result = await action()
+        await self.check_cancelled()
         validate_json(result, self._limit)
         checkpoints = {**self._checkpoints, name: deepcopy(result)}
         validate_json(checkpoints, self._limit)

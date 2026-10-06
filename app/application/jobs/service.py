@@ -6,12 +6,22 @@ from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
-from app.application.errors import JobNotFoundError, JobQueueUnavailableError
+from app.application.auth.authorization import AuthorizationService
+from app.application.auth.context import Principal
+from app.application.errors import (
+    ConfigurationError,
+    JobNotFoundError,
+    JobQueueUnavailableError,
+    UnknownPrincipalError,
+)
 from app.application.jobs.registry import JobHandlerRegistry, validate_json
 from app.application.ports.jobs import IJobStore
 from app.application.ports.queue import IJobQueue
+from app.application.ports.repositories import IUserRepository
 from app.application.ports.system import IClock, IIdGenerator
+from app.domain.auth.value_objects import ResourceType
 from app.domain.jobs.entities import Job, JobState
+from app.domain.jobs.events import JobEventPage
 from app.domain.shared.errors import InvalidStateTransitionError, InvariantViolationError
 
 
@@ -25,6 +35,8 @@ class JobService:
         identifiers: IIdGenerator,
         *,
         max_payload_bytes: int = 65_536,
+        authorization: AuthorizationService | None = None,
+        users: IUserRepository | None = None,
     ) -> None:
         self.store = store
         self._queue = queue
@@ -32,6 +44,33 @@ class JobService:
         self._clock = clock
         self._ids = identifiers
         self._max_payload_bytes = max_payload_bytes
+        self._authorization = authorization
+        self._users = users
+
+    async def _authorize_observation(self, job_id: UUID, principal: Principal) -> None:
+        if self._authorization is None or self._users is None:
+            raise ConfigurationError("Authenticated job controls require a user repository.")
+        user = await self._users.get_by_id(principal.user_id)
+        if user is None:
+            raise UnknownPrincipalError("Job actor is no longer present.")
+        await self._authorization.require_resource_access(
+            Principal.from_user(user), ResourceType.JOB, str(job_id)
+        )
+
+    async def events_after(
+        self, job_id: UUID, sequence: int, principal: Principal, *, limit: int = 100
+    ) -> JobEventPage:
+        await self._authorize_observation(job_id, principal)
+        if type(sequence) is not int or not 0 <= sequence <= 2_147_483_647:
+            raise InvariantViolationError("Last-Event-ID must be a non-negative sequence number.")
+        if not 1 <= limit <= 1000:
+            raise InvariantViolationError("Event page size must be between 1 and 1000.")
+        return await self.store.events_after(job_id, sequence, limit)
+
+    async def cancel(self, job_id: UUID, principal: Principal) -> Job:
+        """Owner/admin command, independent of event consumers and broker availability."""
+        await self._authorize_observation(job_id, principal)
+        return await self.store.request_cancel(job_id, self._clock.now())
 
     async def submit(
         self,
