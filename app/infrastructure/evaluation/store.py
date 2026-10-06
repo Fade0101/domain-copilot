@@ -28,6 +28,8 @@ from app.application.evaluation.data import (
 )
 from app.domain.jobs.entities import JobState
 from app.domain.shared.errors import InvalidStateTransitionError
+from app.infrastructure.persistence.job_events import next_sequence
+from app.infrastructure.persistence.job_store import persist_cancellation
 from app.infrastructure.persistence.models import (
     ChunkEmbeddingModel,
     ChunkModel,
@@ -68,17 +70,15 @@ class PostgresEvaluationArtifacts:
                 )
                 if operation != EVALUATION_OPERATION:
                     raise EvaluationSetupError("NOT_AN_EVALUATION_JOB")
-                sequence = await session.scalar(
-                    sa.select(
-                        sa.func.coalesce(sa.func.max(JobEventModel.sequence_number), 0)
-                    ).where(JobEventModel.job_id == job_id)
+                sequence = await session.run_sync(
+                    lambda sync: next_sequence(sync.connection(), job_id)
                 )
                 await session.execute(
                     insert(JobEventModel)
                     .values(
                         id=self._id(job_id, key),
                         job_id=job_id,
-                        sequence_number=(sequence or 0) + 1,
+                        sequence_number=sequence,
                         event_type="evaluation." + ("case" if key.startswith("case/") else key),
                         payload=payload,
                         created_at=now,
@@ -91,8 +91,8 @@ class PostgresEvaluationArtifacts:
     async def request_cancel(self, job_id: UUID, now: datetime) -> None:
         try:
             async with self._sessions() as session, session.begin():
-                result = await session.execute(
-                    sa.update(JobModel)
+                job = await session.scalar(
+                    sa.select(JobModel)
                     .where(
                         JobModel.id == job_id,
                         JobModel.operation_type == EVALUATION_OPERATION,
@@ -100,10 +100,13 @@ class PostgresEvaluationArtifacts:
                             [JobState.PENDING.value, JobState.QUEUED.value, JobState.STARTED.value]
                         ),
                     )
-                    .values(cancellation_requested=True, updated_at=now)
+                    .with_for_update()
                 )
-                if result.rowcount != 1:  # type: ignore[attr-defined]
+                if job is None:
                     raise InvalidStateTransitionError("Only an active evaluation can be cancelled.")
+                await session.run_sync(
+                    lambda sync: persist_cancellation(sync.connection(), job_id, now)
+                )
         except SQLAlchemyError:
             raise JobStoreError("Evaluation artifacts are unavailable.") from None
 

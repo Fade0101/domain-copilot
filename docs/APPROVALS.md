@@ -149,6 +149,14 @@ failure. Checkpoints, attempt count, input and correlation identity remain intac
 The real T7 lifecycle has no `PAUSED` state: #20's `JobPaused` returns the task
 while its logical job remains `STARTED`.
 
+#21 streams these committed changes through
+`GET /api/v1/jobs/{job_id}/stream` as `job_progress`, with separate `state`,
+`workflow_id` and `workflow_state` fields. Review registration and decisions
+share their transaction with the progress event. Approval audit details and
+finalization requests remain in their existing authorized review interfaces;
+SSE does not expose their private payloads or signal execution. See
+[JOB_STREAMING.md](./JOB_STREAMING.md) for replay and explicit cancellation.
+
 ## Contract consumed by #17
 
 `ApprovalService.get_decision(workflow_id, principal)` returns the persisted

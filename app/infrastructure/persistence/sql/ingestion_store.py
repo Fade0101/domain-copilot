@@ -20,6 +20,7 @@ from app.application.errors import JobStoreError, ResourceNotFoundError
 from app.application.ports.ingestion import IIngestionStore, IngestionDocument, IngestionUpload
 from app.domain.documents.ingestion import IngestionOptions, IngestionStage
 from app.domain.jobs.entities import Job
+from app.infrastructure.persistence.job_events import append_progress
 from app.infrastructure.persistence.job_store import job_insert_values
 from app.infrastructure.persistence.models import Base
 
@@ -106,6 +107,9 @@ class PostgresIngestionStore(IIngestionStore):
             if previous_state in {"PENDING", "QUEUED", "STARTED", "COMPLETED"}:
                 return _document(row)
             await session.execute(_jobs.insert().values(**job_insert_values(job)))
+            await session.run_sync(
+                lambda sync: append_progress(sync.connection(), job, job.created_at)
+            )
             await session.execute(
                 insert(_sources)
                 .values(document_id=upload.document_id, source=upload.source)

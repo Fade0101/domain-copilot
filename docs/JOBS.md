@@ -5,6 +5,9 @@ lifecycle, checkpoints, result and error. The implementation runs the real
 [document ingestion handler](./INGESTION.md) (#8) and provides the runner for
 retrieval evaluation (#12) and workflow (#17).
 
+Ticket #21 adds [durable SSE, token streaming and cancellation](./JOB_STREAMING.md)
+on this same runner, store and event table.
+
 ## Run with Docker Compose
 
 Copy `.env.example` to `.env` and configure these local values:
@@ -75,7 +78,8 @@ The response is **HTTP 202 Accepted** with a `Location` header and:
 ```
 
 `GET /api/v1/jobs/<UUID>` returns `state`, `result`, `error`, timestamps,
-`correlation_id`, and ownership metadata. Before completion, `result` is null.
+`correlation_id`, `cancellation_requested`, and ownership metadata.
+Before completion, `result` is null.
 A completed diagnostic job returns `{"ok": true}`. A failed handler stores
 `JOB_HANDLER_FAILED`, without its exception text. Inputs and checkpoints are
 not part of the public response. Ticket #5's `resource_id`, `resource_type` and
@@ -106,7 +110,11 @@ Implement `IJobHandler` from
   it is committed. Validate again when executing persisted input.
 - `async run(context)`: return a JSON object. Await `context.step(name, action)`
   for each resumable unit of work. The context exposes `job_id`, `user_id`,
-  `correlation_id` and a copy of the input `payload`.
+  `correlation_id`, `streaming` and a copy of the input `payload`.
+- `await context.emit_token(delta)`: persist an opted-in token. Cancellation,
+  non-STARTED jobs and non-streaming jobs cannot publish tokens.
+- `await context.check_cancelled()`: read the persisted cancellation flag between
+  long-running operations; also called before and after each checkpointed step.
 
 The shipped [diagnostic handler](../app/application/jobs/diagnostic.py) is a
 minimal working example; the
@@ -148,8 +156,8 @@ a durable request for #17 to consume. It does not publish a task itself.
 Future workflow handlers must verify persisted
 approval before performing finalization, including on every redelivery.
 `JobCancelled` records CANCELLED, and the context checks the persisted
-cancellation flag between steps. Setting that flag through an API/Redis transport
-belongs to #21. Other handler exceptions record FAILED with a safe code;
+cancellation flag before and after steps. #21's authenticated cancellation API
+persists the flag in PostgreSQL. Other handler exceptions record FAILED with a safe code;
 storage failures leave STARTED for recovery.
 
 ## Recovery from Redis loss or worker death
@@ -158,6 +166,7 @@ The lifecycle is exactly:
 
 ```text
 PENDING → QUEUED → STARTED → COMPLETED | FAILED | CANCELLED
+PENDING | QUEUED → CANCELLED
 ```
 
 The database rejects illegal transitions through the store contract. Progress,
@@ -214,8 +223,9 @@ polling, broker loss, unavailable publishing, hard worker death, resume without
 repeating committed effects, safe failures, intentional pauses, execution locks,
 illegal transitions, and migration downgrade/reapply.
 
-The ADR is [ADR-004](./adr/ADR-004-async-job-execution.md). SSE/cancel transport
-(#21), general idempotency/recovery policy (#22), evaluation (#12) and workflow
-(#17) remain separate deliverables. Ingestion (#8) is implemented on this runner;
+The ADR is [ADR-004](./adr/ADR-004-async-job-execution.md).
+[SSE/cancel transport](./JOB_STREAMING.md) (#21) is implemented on these primitives.
+General idempotency/recovery policy (#22) and workflow (#17) remain separate
+deliverables. Ingestion (#8) is implemented on this runner;
 its API, durability tests and real-model Docker smoke are in
 [INGESTION.md](./INGESTION.md).

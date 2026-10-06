@@ -99,8 +99,10 @@ examples, 512/64 chunking, citation metadata, limits and retry/resume behavior.
 The generic job smoke operation is
 `{"operation_type":"diagnostic","payload":{}}` at `POST /api/v1/jobs`.
 [Async Jobs](docs/JOBS.md) documents native setup, handler registration and
-explicit recovery commands. SSE/cancel transport (#21), general recovery policy
-(#22) and corpus content (#11) remain separate work.
+explicit recovery commands. [SSE, progress and cancellation](docs/JOB_STREAMING.md)
+(#21) add PostgreSQL-backed replay and opt-in token generation. SSE disconnect
+leaves the job running. General recovery policy (#22) and clinical orchestration
+(#17) remain separate work.
 
 ## Hybrid retrieval and grounded Q&A
 

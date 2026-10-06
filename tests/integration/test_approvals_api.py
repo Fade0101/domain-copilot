@@ -64,6 +64,7 @@ from tests.support.approval_fixtures import (
     REJECTION_REASON,
     review_snapshot,
 )
+from tests.support.sse import live_stream
 
 ACTIONS = ("approve", "reject", "edit-and-approve")
 
@@ -180,11 +181,15 @@ class Gate:
             )
 
     async def events(self, job_id: UUID) -> list[JobEventModel]:
+        """Approval audit/outbox history; public progress is tested separately."""
         async with self.sessions() as session:
             return list(
                 await session.scalars(
                     sa.select(JobEventModel)
-                    .where(JobEventModel.job_id == job_id)
+                    .where(
+                        JobEventModel.job_id == job_id,
+                        JobEventModel.event_type.like("approval.%"),
+                    )
                     .order_by(JobEventModel.sequence_number)
                 )
             )
@@ -319,6 +324,40 @@ async def test_rejection_completes_job_preserves_counters_and_audits_reason(gate
     )
     assert decision is not None and decision.reason == REJECTION_REASON
     assert (await gate.finalize(snapshot, decision.id))["error"]["code"] == "APPROVAL_REQUIRED"
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+async def test_sse_observes_approval_phase_without_resuming_or_cancelling(
+    gate: Gate, action: str
+) -> None:
+    snapshot, job_id = await gate.register()
+    async with live_stream(
+        create_app(gate.settings), f"/api/v1/jobs/{job_id}/stream", gate.auth(Role.ANALYST)
+    ) as stream:
+        await stream.wait_for(
+            lambda frames: any(
+                frame.data.get("workflow_state") == "AWAITING_APPROVAL" for frame in frames
+            )
+        )
+        awaiting = stream.frames[-1]
+        assert awaiting.event == "job_progress"
+        assert awaiting.data["state"] == "STARTED"
+        assert awaiting.data["workflow_id"] == str(snapshot.draft.workflow_id)
+        assert (await gate.decide(snapshot, action)).status_code == 200
+        expected = "REJECTED" if action == "reject" else "APPROVED"
+        await stream.wait_for(
+            lambda frames: any(frame.data.get("workflow_state") == expected for frame in frames)
+        )
+        decision = stream.frames[-1]
+        assert decision.sequence > awaiting.sequence
+        assert decision.data["state"] == ("COMPLETED" if action == "reject" else "STARTED")
+        assert all(frame.event == "job_progress" for frame in stream.frames)
+        assert all("detail" not in frame.data for frame in stream.frames)
+    async with gate.sessions() as session:
+        job = await session.get(JobModel, job_id)
+        assert job is not None and not job.cancellation_requested
+        assert job.checkpoint_data["iterations"] == 7 and job.attempt_number == 1
+    assert await gate.count(FinalClinicalNoteModel, snapshot.draft.workflow_id) == 0
 
 
 async def test_edit_and_approve_survives_new_container_with_original_and_diff(gate: Gate) -> None:
