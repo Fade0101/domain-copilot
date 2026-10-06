@@ -78,8 +78,8 @@ def downgrade() -> None:
         sa.text("""
         SELECT EXISTS(SELECT 1 FROM job_events WHERE event_type = 'job.manual_retry')
             OR EXISTS(SELECT 1 FROM jobs WHERE lease_owner IS NOT NULL)
-            OR EXISTS(SELECT 1 FROM workflow_runs
-                      WHERE approval_job_id IS NOT NULL AND review_snapshot IS NULL)
+            OR EXISTS(SELECT 1 FROM workflow_runs WHERE approval_job_id IS NOT NULL)
+            OR EXISTS(SELECT 1 FROM workflow_runs WHERE review_snapshot IS NOT NULL)
     """)
     ):
         raise RuntimeError("Cannot discard active recovery bindings, claims or retry audit")
