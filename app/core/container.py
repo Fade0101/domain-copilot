@@ -30,6 +30,7 @@ from sqlalchemy.engine import Engine
 from app.application.agents.documentation_drafter import DocumentationDrafterAgent
 from app.application.agents.guideline_researcher import GuidelineResearcherAgent
 from app.application.agents.safety_checker import SafetyCheckerAgent
+from app.application.approvals.service import ApprovalService
 from app.application.auth.authorization import AuthorizationService
 from app.application.auth.context import Principal
 from app.application.auth.seeding import (
@@ -52,6 +53,7 @@ from app.application.jobs.diagnostic import DiagnosticJobHandler
 from app.application.jobs.registry import JobHandlerRegistry
 from app.application.jobs.runner import JobRunner
 from app.application.jobs.service import JobService
+from app.application.ports.approvals import IApprovalStore
 from app.application.ports.audit import IAuditSink
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.jobs import IJobHandler, IJobStore
@@ -94,6 +96,7 @@ from app.infrastructure.persistence.in_memory.user_repository import (
     InMemoryUserRepository,
 )
 from app.infrastructure.persistence.job_store import PostgresJobStore, create_job_engine
+from app.infrastructure.persistence.sql.approval_store import PostgresApprovalStore
 from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestionStore
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
@@ -393,6 +396,21 @@ class Container:
             self._retrieval_observer,
             self._clock,
             self._id_generator,
+        )
+
+    def approval_service(self) -> ApprovalService:
+        """Durable human gate, independent of the not-yet-implemented orchestrator."""
+        if self._database is None:
+            raise ConfigurationError("DATABASE__URL is required for clinical approvals.")
+        store: IApprovalStore = PostgresApprovalStore(
+            self._database.session_factory, self._authorization_service, self._clock
+        )
+        return ApprovalService(
+            store,
+            self._user_repository,
+            self._authorization_service,
+            self._audit_sink,
+            self._clock,
         )
 
     def guideline_researcher_agent(

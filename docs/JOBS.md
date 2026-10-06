@@ -140,7 +140,12 @@ That domain rule does not make arbitrary `/jobs` submissions idempotent.
 
 Raise `JobPaused` only after persisting an intentional wait. It releases the
 worker and leaves the logical job STARTED; it does not introduce a workflow
-state into the T7 lifecycle. Future workflow handlers must verify persisted
+state into the T7 lifecycle. The [#19 approval gate](./APPROVALS.md) persists
+review snapshots and decisions, and uses this same execution-lock identity to
+exclude decisions while a worker is active. Rejection atomically completes the
+linked job with a REJECTED workflow result; approval leaves STARTED and exposes
+a durable request for #17 to consume. It does not publish a task itself.
+Future workflow handlers must verify persisted
 approval before performing finalization, including on every redelivery.
 `JobCancelled` records CANCELLED, and the context checks the persisted
 cancellation flag between steps. Setting that flag through an API/Redis transport

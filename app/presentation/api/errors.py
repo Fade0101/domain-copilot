@@ -30,6 +30,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.application.approvals.errors import ApprovalStoreError
 from app.application.errors import (
     ApplicationError,
     AuthenticationError,
@@ -66,6 +67,14 @@ def _body(detail: str, code: str) -> dict[str, str]:
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register every domain/application error handler plus the fail-safe catch-all."""
+
+    @app.exception_handler(ApprovalStoreError)
+    async def _handle_approval_storage(_: Request, exc: ApprovalStoreError) -> JSONResponse:
+        logger.error("approval storage unavailable: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content=_body("Approval storage is unavailable", "APPROVAL_STORE_UNAVAILABLE"),
+        )
 
     @app.exception_handler(KnowledgeUnavailableError)
     async def _handle_knowledge(_: Request, exc: KnowledgeUnavailableError) -> JSONResponse:

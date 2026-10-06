@@ -108,11 +108,16 @@ their own approval record count as an authorized reviewer decision.
 
 Ticket #6 already provides `ApprovalModel`: workflow ID, reviewer ID, original
 draft, reviewed text, and `PENDING`/`APPROVED`/`REJECTED`. Those fields are reused
-unchanged. A future #19 approval implementation must preserve the exact returned
-draft `note` in `original_note` and persist the clinician-reviewed text in
+unchanged. The [#19 approval gate](./APPROVALS.md) preserves the exact returned
+draft `note` in `original_note` and persists the clinician-reviewed text in
 `approved_note`. The `draft_id` is SHA-256 of the exact original draft's UTF-8
 bytes. It is a content/version identifier; the separately checked workflow and
 approval IDs prevent a matching draft in another workflow from being used.
+
+#19 registers the full #16/#15 review snapshot and stores immutable human
+decisions, including actor role and edit diff. It exposes a committed finalization
+request for #17 without calling this tool. Refused and partial drafts cannot
+receive a #19 APPROVED decision. The independent checks below remain unchanged.
 
 `PostgresFinalClinicalNoteWriter.finalize()` performs one transaction:
 

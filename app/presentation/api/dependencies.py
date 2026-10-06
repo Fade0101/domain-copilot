@@ -9,6 +9,7 @@ and what lets the integration test resolve the real adapter through DI.
 
 from __future__ import annotations
 
+from app.application.approvals.service import ApprovalService
 from app.application.auth.use_cases import (
     AuthenticateUserUseCase,
     ResolvePrincipalUseCase,
@@ -28,6 +29,10 @@ from app.core.container import Container, get_container
 def get_app_container() -> Container:
     """Provide the process-wide composition root."""
     return get_container()
+
+
+async def get_approval_service() -> ApprovalService:
+    return get_container().approval_service()
 
 
 async def get_job_service() -> JobService:

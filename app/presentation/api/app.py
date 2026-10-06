@@ -27,6 +27,7 @@ from app.core.config import Settings, get_settings
 from app.core.container import get_container
 from app.presentation.api.errors import register_exception_handlers
 from app.presentation.api.routes import (
+    approvals,
     auth,
     documents,
     evaluations,
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs.router, prefix=settings.api_v1_str)
     app.include_router(knowledge.router, prefix=settings.api_v1_str)
     app.include_router(evaluations.router, prefix=settings.api_v1_str)
+    app.include_router(approvals.router, prefix=settings.api_v1_str)
 
     register_exception_handlers(app)
     return app

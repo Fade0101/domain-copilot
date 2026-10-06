@@ -65,6 +65,16 @@ def _to_job(row: RowMapping) -> Job:
     )
 
 
+def job_from_mapping(row: RowMapping) -> Job:
+    """Reuse the T7 mapping in domain transactions such as approval rejection."""
+    return _to_job(row)
+
+
+def job_execution_lock_key(job_id: UUID) -> int:
+    """Shared advisory-lock identity for workers and atomic approval decisions."""
+    return int.from_bytes(job_id.bytes[:8], "big", signed=True)
+
+
 def job_insert_values(job: Job) -> dict[str, Any]:
     """Shared by job submission and atomic document+source+job acceptance (#8)."""
     return {
@@ -204,7 +214,7 @@ class PostgresJobStore(IJobStore):
 
     @asynccontextmanager
     async def lock(self, job_id: UUID) -> AsyncIterator[IJobStore | None]:
-        key = int.from_bytes(job_id.bytes[:8], "big", signed=True)
+        key = job_execution_lock_key(job_id)
 
         def acquire() -> tuple[Connection, bool]:
             connection = self._engine.connect()

@@ -116,6 +116,16 @@ credentials through the existing `LLM__*` settings. See
 [Hybrid Retrieval and Grounded Q&A](docs/RETRIEVAL.md) for requests, score meaning,
 model resources, traces and real-model verification.
 
+## Human approval
+
+Ticket #19 adds review, approve, reject-with-reason and edit-and-approve endpoints
+under `/api/v1/runs/{workflow_id}/approval`. Reviewer/admin permissions are
+enforced on the server. Original drafts, safety provenance, decisions and edit
+diffs are persisted; rejection completes the linked job. Trusted future #17 code
+must first register the #16 draft through the internal approval service. See
+[Human Approval Gate](docs/APPROVALS.md) for that contract and the durable
+finalization handoff. #19 does not run an orchestrator or finalize notes directly.
+
 ## Documentation
 
 - [BRD](docs/BRD.md) — business requirements and the traceability matrix
@@ -124,5 +134,6 @@ model resources, traces and real-model verification.
 - [ADRs](docs/adr/) — architecture decision records
 - [Security](docs/SECURITY.md) · [Evaluation](docs/EVALUATION.md)
 - [Async Jobs](docs/JOBS.md) — startup, API, checkpoint and recovery contracts
+- [Human Approval Gate](docs/APPROVALS.md) — persisted reviews, decisions, audit and #17 handoff
 - [Document Ingestion](docs/INGESTION.md) — PDF/Markdown uploads, synthetic seed, citations and recovery
 - [Hybrid Retrieval and Grounded Q&A](docs/RETRIEVAL.md) — RRF, BGE scores, citations and refusal
