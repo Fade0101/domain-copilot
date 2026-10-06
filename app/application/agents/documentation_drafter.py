@@ -16,8 +16,6 @@ from app.application.agents.contracts import (
     CaseSummary,
     ClinicalNoteDraft,
     DeferredClaim,
-    ExcludedClaim,
-    SafetyClaimCheck,
     SafetyClaimStatus,
     SafetyStatus,
     SafetyVerdict,
@@ -107,7 +105,9 @@ class DocumentationDrafterAgent:
                 can_proceed=False,
                 requires_review=True,
                 evidence_trace_ids=(),
-                metadata={"refusal_reason": f"Input safety verdict failed with {verdict.status.value}"},
+                metadata={
+                    "refusal_reason": f"Input safety verdict failed with {verdict.status.value}"
+                },
             )
 
         # 2. Deterministic claim partitioning
@@ -128,7 +128,9 @@ class DocumentationDrafterAgent:
                 can_proceed=verdict.can_proceed,
                 requires_review=True,
                 evidence_trace_ids=(),
-                metadata={"refusal_reason": "Zero verified safe clinical claims available for drafting."},
+                metadata={
+                    "refusal_reason": "Zero verified safe clinical claims available for drafting."
+                },
             )
 
         # 4. Fail-closed context serialization (prevent mid-sentence truncation)
@@ -227,10 +229,16 @@ class DocumentationDrafterAgent:
                     # Defense-in-depth tool-call validation
                     if call.name not in ALLOWED_TOOLS:
                         if self._observer:
-                            self._observer.emit(
+                            await self._observer.sink.record(
                                 AuditEntry(
                                     action="unauthorized_tool_rejected",
                                     actor_id="documentation_drafter",
+                                    actor_role="agent",
+                                    outcome="denied",
+                                    occurred_at=self._observer.clock.now(),
+                                    resource_type="workflow",
+                                    resource_id=str(verdict.workflow_id),
+                                    correlation_id=str(verdict.workflow_id),
                                     detail={
                                         "attempted_tool": call.name,
                                         "workflow_id": str(verdict.workflow_id),
@@ -335,7 +343,9 @@ class DocumentationDrafterAgent:
                             requires_review=True,
                             evidence_trace_ids=tuple(evidence_trace_ids),
                             quarantined_chunks_count=quarantined_chunks_count,
-                            metadata={"refusal_reason": "Draft tool returned refusal or empty citations."},
+                            metadata={
+                                "refusal_reason": "Draft tool returned refusal or empty citations."
+                            },
                         )
 
                     raw_note = str(inner.get("note", ""))
@@ -380,5 +390,9 @@ class DocumentationDrafterAgent:
             requires_review=True,
             evidence_trace_ids=tuple(evidence_trace_ids),
             quarantined_chunks_count=quarantined_chunks_count,
-            metadata={"refusal_reason": "No successful drafting tool call completed within iteration limit."},
+            metadata={
+                "refusal_reason": (
+                    "No successful drafting tool call completed within iteration limit."
+                )
+            },
         )

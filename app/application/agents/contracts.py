@@ -223,7 +223,9 @@ def canonical_claim_key(
     - For INTERACTION: normalizes comma-separated drug pairs alphabetically so that
       "DrugA, DrugB" and "DrugB, DrugA" produce identical keys.
     """
-    c_type = claim_type.value if isinstance(claim_type, SafetyClaimType) else str(claim_type).lower()
+    c_type = (
+        claim_type.value if isinstance(claim_type, SafetyClaimType) else str(claim_type).lower()
+    )
 
     if c_type == SafetyClaimType.INTERACTION.value:
         drugs = sorted(d.strip().casefold() for d in target.split(","))
@@ -285,7 +287,7 @@ def partition_verdict_claims(
                 )
             )
 
-    # 2. Process flags using deterministic compatibility parser (deduplicating against checked_claims)
+    # 2. Process flags deterministically, deduplicating against checked_claims.
     for flag in verdict.flags:
         key = _parse_flag_key(flag)
         if key in seen_keys:
@@ -433,4 +435,3 @@ class ClinicalNoteDraft:
         for def_claim in self.deferred_claims:
             if def_claim.status != SafetyClaimStatus.VERIFIED_SAFE:
                 raise ValueError(f"Deferred claim '{def_claim.claim_id}' must be VERIFIED_SAFE")
-
