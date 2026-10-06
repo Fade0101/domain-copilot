@@ -47,3 +47,9 @@ class JobHandlerRegistry:
             return self._handlers[operation_type]
         except KeyError as exc:
             raise InvariantViolationError("Unknown job operation type.") from exc
+
+    def version(self, operation_type: str) -> str:
+        version = getattr(self.get(operation_type), "version", "1")
+        if not isinstance(version, str) or not version.strip() or len(version) > 64:
+            raise InvariantViolationError("Handler versions must contain 1 to 64 characters.")
+        return version

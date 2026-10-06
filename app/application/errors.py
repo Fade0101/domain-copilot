@@ -171,6 +171,14 @@ class JobCancelled(Exception):
     """Cooperative cancellation signal; the runner records CANCELLED, not FAILED."""
 
 
+class JobTerminated(Exception):
+    """A guarded effect already committed the job's terminal result."""
+
+
+class RetryableJobError(ApplicationError):
+    """A handler explicitly reports a transient, safely resumable failure."""
+
+
 class IngestionError(ApplicationError):
     """A safe, actionable pipeline failure suitable for a document's status record."""
 

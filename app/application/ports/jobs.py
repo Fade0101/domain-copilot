@@ -4,16 +4,55 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.jobs.entities import Job, JobState
 from app.domain.jobs.events import JobEvent, JobEventPage
+from app.domain.auth.value_objects import UserId
 
 
 class IJobStore(Protocol):
     async def add(self, job: Job) -> None: ...
+
+    async def add_or_get(self, job: Job) -> tuple[Job, bool]:
+        """Atomically accept a canonical submission; only its creator dispatches."""
+        ...
+
+    async def claim(self, job_id: UUID, now: datetime, lease_seconds: float) -> Job | None:
+        """Under lock(), atomically claim eligible execution and persist its owner."""
+        ...
+
+    async def heartbeat(self, job_id: UUID, now: datetime) -> None: ...
+
+    async def pause(self, job_id: UUID, now: datetime) -> None: ...
+
+    async def schedule_retry(
+        self, job_id: UUID, now: datetime, due: datetime, *, error: str
+    ) -> Job: ...
+
+    async def retry_failed(
+        self, job_id: UUID, actor_id: UserId, reason: str, now: datetime
+    ) -> Job:
+        """Recheck stored admin authority; commit retry and immutable audit together."""
+        ...
+
+    async def resume(self, job_id: UUID, now: datetime) -> Job:
+        """Under lock(), resume an eligible crash/pause; never AWAITING_APPROVAL."""
+        ...
+
+    async def recoverable(self, now: datetime, limit: int) -> list[UUID]: ...
+
+    async def recover_interrupted(
+        self, job_id: UUID, now: datetime, due: datetime
+    ) -> Job | None: ...
+
+    async def reserve_dispatch(
+        self, job_id: UUID, now: datetime, interval: timedelta, *, force: bool = False
+    ) -> Job | None:
+        """Commit QUEUED and reserve publication; filter persisted phase and retry due time."""
+        ...
 
     async def get(self, job_id: UUID) -> Job | None: ...
 

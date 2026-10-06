@@ -340,6 +340,13 @@ def test_migrations_downgrade_and_reapply(database_url: str) -> None:
     engine = sa.create_engine(database_url)
     try:
         columns = {column["name"] for column in sa.inspect(engine).get_columns("jobs")}
+        # Core execution fields (pre-#22).
         assert {"input_payload", "checkpoint_data", "result_payload", "started_at"} <= columns
+        # Lease, retry and idempotency fields added by #22.
+        assert {
+            "idempotency_key", "operation_version", "max_attempts", "next_retry_at",
+            "lease_owner", "lease_acquired_at", "lease_expires_at",
+            "paused_at", "last_dispatched_at",
+        } <= columns
     finally:
         engine.dispose()

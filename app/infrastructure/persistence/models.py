@@ -68,9 +68,16 @@ _JOB_STATE_ENUM = sa.Enum(
     native_enum=False,
 )
 _WORKFLOW_STATE_ENUM = sa.Enum(
+    "RESEARCH",
+    "SAFETY_CHECK",
+    "DRAFT",
     "AWAITING_APPROVAL",
     "REJECTED",
     "APPROVED",
+    "FINALIZE",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
     name="workflow_state_enum",
     native_enum=False,
 )
@@ -284,6 +291,14 @@ class JobModel(Base):
             name="ck_jobs_lifecycle",
         ),
         sa.Index("ix_jobs_dispatch", "state", "created_at", "id"),
+        sa.Index("ix_jobs_recovery", "state", "lease_expires_at", "next_retry_at"),
+        sa.CheckConstraint("attempt_number >= 0 AND max_attempts >= 1", name="ck_jobs_attempts"),
+        sa.CheckConstraint(
+            "(lease_owner IS NULL AND lease_acquired_at IS NULL AND lease_expires_at IS NULL) "
+            "OR (lease_owner IS NOT NULL AND lease_acquired_at IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL)",
+            name="ck_jobs_lease",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
@@ -291,8 +306,8 @@ class JobModel(Base):
         sa.Uuid(), sa.ForeignKey("users.id"), nullable=False, index=True
     )
     state: Mapped[str] = mapped_column(_JOB_STATE_ENUM, nullable=False)
-    # Uniqueness rejects colliding keys. Ticket #20 uses a fresh job UUID;
-    # canonical-input request deduplication belongs to Ticket #22.
+    # Canonical standalone submission key; feature transactions retain their
+    # existing domain acceptance identities (e.g. immutable ingestion sources).
     idempotency_key: Mapped[str] = mapped_column(
         sa.String(255), nullable=False, index=True, unique=True
     )
@@ -302,6 +317,18 @@ class JobModel(Base):
     next_retry_at: Mapped[datetime.datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
+    operation_version: Mapped[str] = mapped_column(
+        sa.String(64), nullable=False, server_default="1"
+    )
+    lease_owner: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    lease_acquired_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    paused_at: Mapped[datetime.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_dispatched_at: Mapped[datetime.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     checkpoint_data: Mapped[dict[str, Any]] = mapped_column(JSONB(), nullable=False)
     # Nullable for legacy rows, which the runner excludes from reconciliation.
     operation_type: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
@@ -359,7 +386,7 @@ class WorkflowRunModel(Base):
     __table_args__ = (
         sa.UniqueConstraint("approval_job_id", name="uq_workflow_approval_job"),
         sa.CheckConstraint(
-            "(review_snapshot IS NULL) = (approval_job_id IS NULL)",
+            "review_snapshot IS NULL OR approval_job_id IS NOT NULL",
             name="ck_workflow_review_binding",
         ),
     )
@@ -373,8 +400,8 @@ class WorkflowRunModel(Base):
     )
     case_summary: Mapped[str] = mapped_column(sa.Text(), nullable=False)
     state: Mapped[str] = mapped_column(_WORKFLOW_STATE_ENUM, nullable=False)
-    # #19 registers the exact #16 draft and #15 verdict here. Nullable preserves
-    # legacy workflows; the migration makes a registered snapshot immutable.
+    # Bind the execution job before dispatch (#22); #19 later registers its exact
+    # #16/#15 snapshot. The binding and a registered snapshot are immutable.
     approval_job_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid(), sa.ForeignKey("jobs.id", name="fk_workflow_approval_job"), nullable=True
     )
