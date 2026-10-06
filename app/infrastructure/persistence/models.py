@@ -8,7 +8,7 @@ is to be an exact mirror of the migrated schema, so that:
 * repositories can be written against mapped classes rather than ``text()``.
 
 **The migrations remain the source of truth.** These models were derived from the
-schema through ``e18a9d70c342`` (Tickets #5, #6, #20, #9, #8 and #18), verified against a
+schema through ``f19b6a2d9041`` (Tickets #5, #6, #20, #9, #8, #18 and #19), verified against a
 migrated database. ``tests/integration/
 test_orm_models.py`` asserts the two agree by running autogenerate against a
 migrated database and requiring an empty diff, so a model edited out of step with
@@ -356,6 +356,13 @@ class WorkflowRunModel(Base):
     """A clinical workflow run (FR-5), owned by the analyst who started it."""
 
     __tablename__ = "workflow_runs"
+    __table_args__ = (
+        sa.UniqueConstraint("approval_job_id", name="uq_workflow_approval_job"),
+        sa.CheckConstraint(
+            "(review_snapshot IS NULL) = (approval_job_id IS NULL)",
+            name="ck_workflow_review_binding",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -366,6 +373,12 @@ class WorkflowRunModel(Base):
     )
     case_summary: Mapped[str] = mapped_column(sa.Text(), nullable=False)
     state: Mapped[str] = mapped_column(_WORKFLOW_STATE_ENUM, nullable=False)
+    # #19 registers the exact #16 draft and #15 verdict here. Nullable preserves
+    # legacy workflows; the migration makes a registered snapshot immutable.
+    approval_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("jobs.id", name="fk_workflow_approval_job"), nullable=True
+    )
+    review_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB(), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -375,6 +388,27 @@ class ApprovalModel(Base):
     """A reviewer's decision on a workflow run (FR-5; audit trail for #19)."""
 
     __tablename__ = "approvals"
+    __table_args__ = (
+        sa.Index(
+            "uq_approval_managed_workflow",
+            "workflow_run_id",
+            unique=True,
+            postgresql_where=sa.text("action IS NOT NULL"),
+        ),
+        sa.CheckConstraint(
+            "(action IS NULL AND draft_id IS NULL AND reviewer_role IS NULL "
+            "AND approved_draft_id IS NULL AND diff IS NULL) OR COALESCE("
+            "draft_id ~ '^[0-9a-f]{64}$' AND reviewer_role IN ('reviewer', 'admin') AND ("
+            "(action = 'REJECT' AND status = 'REJECTED' AND approved_note IS NULL "
+            "AND approved_draft_id IS NULL AND diff IS NULL "
+            "AND length(btrim(rejection_reason)) BETWEEN 3 AND 4000) OR "
+            "(action IN ('APPROVE', 'EDIT_AND_APPROVE') AND status = 'APPROVED' "
+            "AND length(btrim(approved_note)) > 0 AND length(approved_note) <= 64000 "
+            "AND approved_draft_id ~ '^[0-9a-f]{64}$' AND diff IS NOT NULL "
+            "AND rejection_reason IS NULL)), FALSE)",
+            name="ck_approval_managed_decision",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     workflow_run_id: Mapped[uuid.UUID] = mapped_column(
@@ -390,6 +424,13 @@ class ApprovalModel(Base):
     approved_note: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     status: Mapped[str] = mapped_column(_APPROVAL_STATUS_ENUM, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    # Legacy #18 records remain readable. A non-null action identifies a #19
+    # decision with a complete immutable review/audit trail, not a legacy seed.
+    action: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    reviewer_role: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    draft_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    approved_draft_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    diff: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     timestamp: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
