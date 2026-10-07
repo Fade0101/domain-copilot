@@ -413,6 +413,24 @@ class PostgresJobStore(IJobStore):
 
         return await self._call(save)
 
+    async def list_jobs(
+        self, *, owner_id: UUID | None, state: JobState | None, limit: int, offset: int
+    ) -> list[Job]:
+        def read() -> list[Job]:
+            with self._transaction() as connection:
+                statement = sa.select(_jobs).where(_jobs.c.user_id.is_not(None))
+                if owner_id is not None:
+                    statement = statement.where(_jobs.c.user_id == owner_id)
+                if state is not None:
+                    statement = statement.where(_jobs.c.state == state.value)
+                statement = statement.order_by(_jobs.c.created_at.desc(), _jobs.c.id.desc())
+                return [
+                    _to_job(row)
+                    for row in connection.execute(statement.limit(limit).offset(offset)).mappings()
+                ]
+
+        return await self._call(read)
+
     async def retry_failed(self, job_id: UUID, actor_id: UserId, reason: str, now: datetime) -> Job:
         def retry() -> Job:
             with self._transaction() as connection:

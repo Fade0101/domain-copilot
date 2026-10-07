@@ -28,7 +28,9 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from app.application.approvals.errors import ApprovalStoreError
 from app.application.errors import (
@@ -42,6 +44,7 @@ from app.application.errors import (
     ResourceOwnershipError,
     UploadTooLargeError,
 )
+from app.application.sessions import HistoryStoreUnavailableError
 from app.domain.shared.errors import (
     DomainError,
     InvalidStateTransitionError,
@@ -67,6 +70,37 @@ def _body(detail: str, code: str) -> dict[str, str]:
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register every domain/application error handler plus the fail-safe catch-all."""
+
+    @app.exception_handler(HistoryStoreUnavailableError)
+    async def _handle_history(_: Request, exc: HistoryStoreUnavailableError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content=_body("History storage is unavailable", "HISTORY_STORE_UNAVAILABLE"),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_validation(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Pydantic errors can contain passwords, prompts and raw input. Keep them private.
+        return JSONResponse(
+            status_code=422, content=_body("Request validation failed", "VALIDATION_ERROR")
+        )
+
+    @app.exception_handler(HTTPException)
+    async def _handle_http(_: Request, exc: HTTPException) -> JSONResponse:
+        from http import HTTPStatus
+
+        try:
+            detail = HTTPStatus(exc.status_code).phrase
+        except ValueError:
+            detail = "HTTP request failed"
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_body(detail, "NOT_AUTHENTICATED" if exc.status_code == 401 else "HTTP_ERROR"),
+            headers={
+                **(exc.headers or {}),
+                **(_WWW_AUTHENTICATE if exc.status_code == 401 else {}),
+            },
+        )
 
     @app.exception_handler(ApprovalStoreError)
     async def _handle_approval_storage(_: Request, exc: ApprovalStoreError) -> JSONResponse:

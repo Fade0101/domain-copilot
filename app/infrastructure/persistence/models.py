@@ -576,3 +576,28 @@ class SessionModel(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
+
+
+class SessionMessageModel(Base):
+    """Ordered messages; a grounded outcome is present only on assistant messages."""
+
+    __tablename__ = "session_messages"
+    __table_args__ = (
+        sa.UniqueConstraint("session_id", "sequence", name="uq_session_messages_sequence"),
+        sa.CheckConstraint("sequence > 0", name="ck_session_messages_sequence"),
+        sa.CheckConstraint(
+            "(role = 'user' AND answer IS NULL) OR (role = 'assistant' AND answer IS NOT NULL)",
+            name="ck_session_messages_role",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("sessions.id"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    role: Mapped[str] = mapped_column(sa.String(9), nullable=False)
+    content: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
