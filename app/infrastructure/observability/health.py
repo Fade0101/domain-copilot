@@ -6,7 +6,6 @@ import asyncio
 import math
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from urllib.parse import quote
 
 import httpx
 import sqlalchemy as sa
@@ -29,12 +28,21 @@ class ChatProbe:
                 if not self.api_key:
                     return False
                 response = await client.get(
-                    "https://api.groq.com/openai/v1/models/" + quote(self.model, safe=""),
+                    "https://api.groq.com/openai/v1/models",
                     headers={"Authorization": "Bearer " + self.api_key},
                 )
                 response.raise_for_status()
                 body = response.json()
-                return body.get("id") == self.model and body.get("active", True) is True
+                # Groq exposes the model list; a detail URL can return 404 even
+                # for an available model (including provider/model identifiers).
+                if not isinstance(body, dict) or not isinstance(body.get("data"), list):
+                    return False
+                return any(
+                    isinstance(item, dict)
+                    and item.get("id") == self.model
+                    and item.get("active", True) is True
+                    for item in body["data"]
+                )
             if self.provider == "ollama":
                 response = await client.post(
                     self.base_url.rstrip("/") + "/api/show", json={"model": self.model}
