@@ -9,10 +9,11 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.clinical_tools.contracts import FinalizeClinicalNoteOutput
 from app.application.ports.workflow import IWorkflowRunRepository
 from app.domain.workflow.entities import WorkflowRun
 from app.domain.workflow.state import ClinicalWorkflowState
-from app.infrastructure.persistence.models import WorkflowRunModel
+from app.infrastructure.persistence.models import FinalClinicalNoteModel, WorkflowRunModel
 
 
 def _to_entity(row: WorkflowRunModel) -> WorkflowRun:
@@ -23,7 +24,11 @@ def _to_entity(row: WorkflowRunModel) -> WorkflowRun:
         case_summary=row.case_summary,
         created_at=row.created_at,
         updated_at=row.created_at,
-        state=ClinicalWorkflowState(row.state),
+        # #19 persists APPROVED as its handoff marker. #17 represents approval
+        # as a decision, retaining AWAITING_APPROVAL until its guarded resume.
+        state=ClinicalWorkflowState.AWAITING_APPROVAL
+        if row.state == "APPROVED"
+        else ClinicalWorkflowState(row.state),
         approval_job_id=row.approval_job_id,
         review_snapshot=row.review_snapshot,
     )
@@ -32,6 +37,26 @@ def _to_entity(row: WorkflowRunModel) -> WorkflowRun:
 class PostgresWorkflowRunRepository(IWorkflowRunRepository):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+
+    async def get_final_note(self, workflow_id: UUID) -> FinalizeClinicalNoteOutput | None:
+        async with self._session_factory() as session:
+            note = await session.scalar(
+                sa.select(FinalClinicalNoteModel).where(
+                    FinalClinicalNoteModel.workflow_run_id == workflow_id
+                )
+            )
+            if note is None:
+                return None
+            return FinalizeClinicalNoteOutput(
+                note.id,
+                note.workflow_run_id,
+                note.draft_id,
+                note.approval_id,
+                note.note,
+                note.finalized_by,
+                note.finalized_at,
+                False,
+            )
 
     async def get_by_id(self, workflow_id: UUID) -> WorkflowRun | None:
         async with self._session_factory() as session:
@@ -58,7 +83,11 @@ class PostgresWorkflowRunRepository(IWorkflowRunRepository):
                     case_summary=run.case_summary,
                     state=run.state.value,
                     approval_job_id=run.approval_job_id,
-                    review_snapshot=run.review_snapshot,
+                    # SQL NULL means no review yet. JSON null would trip #19's
+                    # immutable-snapshot trigger on the first real review write.
+                    review_snapshot=run.review_snapshot
+                    if run.review_snapshot is not None
+                    else sa.null(),
                     created_at=run.created_at,
                 )
                 .on_conflict_do_update(
@@ -66,7 +95,9 @@ class PostgresWorkflowRunRepository(IWorkflowRunRepository):
                     set_={
                         "state": run.state.value,
                         "approval_job_id": run.approval_job_id,
-                        "review_snapshot": run.review_snapshot,
+                        "review_snapshot": run.review_snapshot
+                        if run.review_snapshot is not None
+                        else sa.null(),
                     },
                 )
             )

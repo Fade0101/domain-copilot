@@ -91,7 +91,13 @@ to become searchable. Repeating it reuses the same document/job IDs and chunks.
 The first ingestion downloads the public local embedding model; its cache is
 retained in a Docker volume. No chat API key is needed for ingestion.
 
-Open `http://localhost:8000/docs`, authenticate as the configured admin, and use
+Open **http://localhost:8000/** for the web workspace. Sign in with a seeded
+`analyst@example.com`, `reviewer@example.com`, or `admin@example.com` account and
+your configured demo password. The UI is included in the API image; no Node
+server or separate frontend build is needed. See [Web UI](docs/WEB-UI.md) for
+the conversation → workflow → review → finalized-note walkthrough.
+
+The API explorer remains at `http://localhost:8000/docs`. Authenticate as the configured admin and use
 `POST /api/v1/documents/ingest` with raw file bytes. It returns HTTP 202 and job/
 document polling URLs. See [Document Ingestion](docs/INGESTION.md) for upload
 examples, 512/64 chunking, citation metadata, limits and retry/resume behavior.
@@ -101,8 +107,8 @@ The generic job smoke operation is
 [Async Jobs](docs/JOBS.md) documents native setup, handler registration and
 explicit recovery commands. [SSE, progress and cancellation](docs/JOB_STREAMING.md)
 (#21) add PostgreSQL-backed replay and opt-in token generation. SSE disconnect
-leaves the job running. General recovery policy (#22) and clinical orchestration
-(#17) remain separate work.
+leaves the job running. Durable recovery (#22) and the clinical workflow (#17)
+power the web workspace's progress and approval journey.
 
 ## Hybrid retrieval and grounded Q&A
 
@@ -123,8 +129,9 @@ model resources, traces and real-model verification.
 Ticket #19 adds review, approve, reject-with-reason and edit-and-approve endpoints
 under `/api/v1/runs/{workflow_id}/approval`. Reviewer/admin permissions are
 enforced on the server. Original drafts, safety provenance, decisions and edit
-diffs are persisted; rejection completes the linked job. Trusted future #17 code
-must first register the #16 draft through the internal approval service. See
+diffs are persisted; rejection completes the linked job. The #17 workflow
+registers the #16 draft through the internal approval service. The web UI then
+supports the human decision and explicit guarded finalization request. See
 [Human Approval Gate](docs/APPROVALS.md) for that contract and the durable
 finalization handoff. #19 does not run an orchestrator or finalize notes directly.
 
@@ -146,6 +153,7 @@ for the query contract, rate configuration, readiness scope and accounting limit
 
 ## Documentation
 
+- [Web UI](docs/WEB-UI.md) — startup, full user journey, streaming recovery and browser tests
 - [API Contracts](docs/API-CONTRACTS.md) and [published OpenAPI](docs/openapi.json) — endpoints,
   citations, refusals, typed errors, roles, ownership, SSE and session history
 

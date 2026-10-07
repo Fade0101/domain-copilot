@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Domain Copilot</title>
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script type="module" src="/ui/assets/app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="#chat">Domain Copilot</a>
+    <span class="subtle">Healthcare documentation</span>
+    <div id="identity" hidden><span id="account"></span><button id="logout" type="button">Sign out</button></div>
+  </header>
+  <main>
+    <p class="notice">Assessment workspace · Synthetic cases only. Do not enter real patient information.</p>
+    <div id="error" role="alert" hidden></div>
+    <section id="login-panel" class="card login" aria-labelledby="login-title">
+      <h1 id="login-title">Sign in</h1>
+      <p>Use your analyst, reviewer, or admin account.</p>
+      <form id="login-form">
+        <label for="email">Email</label><input id="email" type="email" autocomplete="username" maxlength="255" required>
+        <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" maxlength="1024" required>
+        <button type="submit" class="primary">Sign in</button>
+      </form>
+      <p id="login-status" role="status"></p>
+    </section>
+    <div id="workspace" hidden>
+      <nav aria-label="Workspace">
+        <a href="#chat" data-view="chat">Conversations</a>
+        <a href="#jobs" data-view="jobs">Jobs &amp; workflows</a>
+        <a href="#review" data-view="review" id="review-nav" hidden>Review</a>
+        <a href="#traces" data-view="traces">Traces</a>
+      </nav>
+
+      <section id="chat-view" class="view" aria-labelledby="chat-title">
+        <h1 id="chat-title">Conversations</h1>
+        <div class="split">
+          <aside class="card">
+            <h2>Your conversations</h2>
+            <form id="session-form"><label for="session-title">New conversation title</label><input id="session-title" maxlength="255" placeholder="Untitled conversation"><button type="submit">New conversation</button></form>
+            <button id="refresh-sessions" type="button">Refresh list</button>
+            <ul id="session-list" class="resource-list"></ul>
+            <button id="more-sessions" type="button" hidden>More conversations</button>
+          </aside>
+          <div class="card">
+            <h2 id="conversation-title">Select or start a conversation</h2>
+            <p id="chat-status" role="status"></p>
+            <div id="messages" aria-label="Conversation messages"></div>
+            <button id="more-messages" type="button" hidden>Load next messages</button>
+            <form id="ask-form">
+              <label for="question">Ask the evidence corpus</label><textarea id="question" maxlength="2000" rows="3" required placeholder="Ask a question about the available guidelines"></textarea>
+              <div class="actions"><button id="ask" type="submit" class="primary">Ask</button><button id="stop-answer" type="button" hidden>Stop receiving</button><button id="reload-history" type="button">Reload history</button></div>
+            </form>
+            <p class="subtle">Answers appear after evidence checks. Citations stay with the saved answer.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="jobs-view" class="view" hidden aria-labelledby="jobs-title">
+        <h1 id="jobs-title">Jobs &amp; workflows</h1>
+        <details class="card" id="workflow-form-panel">
+          <summary>Start a clinical workflow</summary>
+          <form id="workflow-form">
+            <label for="clinical-question">Clinical question</label><textarea id="clinical-question" maxlength="2000" rows="2" required></textarea>
+            <label for="case-summary">Synthetic case summary</label><textarea id="case-summary" maxlength="4000" rows="4" required></textarea>
+            <label for="patient-context">Additional synthetic context (optional)</label><textarea id="patient-context" maxlength="4000" rows="2"></textarea>
+            <button type="submit" class="primary">Start workflow</button>
+          </form>
+          <p class="subtle">Research → Safety check → Draft → Human approval → Finalization</p>
+        </details>
+        <div class="split">
+          <aside class="card">
+            <h2>Jobs</h2><button id="refresh-jobs" type="button">Refresh jobs</button>
+            <form id="job-open-form"><label for="job-id">Open job by ID</label><input id="job-id" required><button type="submit">Open job</button></form>
+            <ul id="job-list" class="resource-list"></ul>
+            <button id="more-jobs" type="button" hidden>More jobs</button>
+          </aside>
+          <div class="card">
+            <h2 id="job-title">Select a job</h2>
+            <p id="job-connection" role="status"></p>
+            <div id="job-detail"></div>
+            <div class="actions"><button id="cancel-job" class="danger" type="button" hidden>Cancel job</button><button id="reconnect-job" type="button" hidden>Reconnect progress</button></div>
+            <p class="subtle">Leaving this page or losing the connection keeps the job running. Use Cancel job to stop it.</p>
+            <ol id="job-events" aria-label="Job progress"></ol>
+            <pre id="job-tokens" hidden></pre>
+            <div id="run-detail"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="review-view" class="view" hidden aria-labelledby="review-title">
+        <h1 id="review-title">Clinical review</h1>
+        <p>Open the workflow ID shared by its author. Review the evidence and every flagged claim before deciding.</p>
+        <form id="review-form" class="inline-form"><label for="review-id">Workflow ID</label><input id="review-id" required><button type="submit">Load review</button><button id="refresh-review" type="button">Refresh review</button></form>
+        <p id="review-status" role="status"></p>
+        <div id="review-content"></div>
+        <div id="review-actions" class="card" hidden>
+          <button id="approve" class="primary" type="button">Approve draft</button>
+          <details id="edit-panel"><summary>Edit and approve</summary><label for="edited-note">Reviewed note</label><textarea id="edited-note" maxlength="64000" rows="12"></textarea><h3>Changes from the draft</h3><pre id="edit-diff" aria-label="Edit diff"></pre><button id="edit-approve" type="button" class="primary">Approve edited note</button></details>
+          <details id="reject-panel"><summary>Reject with reason</summary><form id="reject-form"><label for="reject-reason">Reason for rejection</label><textarea id="reject-reason" minlength="3" maxlength="4000" required rows="3"></textarea><button id="reject" class="danger" type="submit">Reject draft</button></form></details>
+        </div>
+      </section>
+
+      <section id="traces-view" class="view" hidden aria-labelledby="traces-title">
+        <h1 id="traces-title">Traces</h1>
+        <form id="trace-filter" class="card filter-grid">
+          <label>Run ID<input name="run_id"></label><label>Correlation ID<input name="correlation_id" maxlength="255"></label><label>Job ID<input name="job_id"></label>
+          <label>From<input type="datetime-local" name="start_time"></label><label>To<input type="datetime-local" name="end_time"></label>
+          <button type="submit">Find traces</button>
+        </form>
+        <p id="trace-status" role="status"></p>
+        <div id="usage" class="card" hidden></div>
+        <ul id="trace-list" class="resource-list"></ul><button id="more-traces" type="button" hidden>More traces</button>
+        <div id="trace-detail" class="card" hidden></div><button id="more-spans" type="button" hidden>More spans</button>
+      </section>
+    </div>
+    <noscript><p>This web workspace needs JavaScript enabled. The API documentation is available at <a href="/docs">/docs</a>.</p></noscript>
+  </main>
+</body>
+</html>
