@@ -143,6 +143,21 @@ Ask streams have no replay IDs or job cancellation semantics. Both streams use
 
 ## Errors and state semantics
 
+Ticket #25 also exposes the existing clinical workflow service for the web
+journey, without changing the approval/finalization authority:
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /runs` | All roles with `run_workflow`; `{clinical_question, case_summary, patient_context?}`. Existing 2,000/4,000/4,000 character bounds; extra fields forbidden. Returns 202 with `workflow_id`, `job_id`, `state`, `status_url` and Location. IDs/owner come from the server. |
+| `GET /runs/{id}/status` | Owner or existing reviewer/admin run access. Returns run ID, owner, correlation, job ID, phase and creation time. 404 before the worker creates the run. |
+| `POST /runs/{id}/resume` | Same run access plus `run_workflow`; delegates to #17's persisted-approval-checked resume. 202 does not assert finalization has completed. |
+| `GET /runs/{id}/note` | Same run read authorization; only the immutable #18 final note, with its note/approval/draft IDs and finalizer/time. 404 until a finalized row exists, even after approval. |
+
+The existing `GET /runs/{id}` ownership projection remains compatible. The
+workflow repository normalizes #19's persisted `APPROVED` handoff marker to
+#17's awaiting-approval phase when constructing its aggregate; the persisted
+decision remains authoritative. Details and browser tests: [Web UI](WEB-UI.md).
+
 All HTTP errors, including framework validation, 404 and 405, use
 `ErrorResponse = {detail: string, code: string}`. Validation returns the static
 `VALIDATION_ERROR` message without echoing passwords, question text or other input.

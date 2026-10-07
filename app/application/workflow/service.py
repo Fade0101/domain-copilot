@@ -7,6 +7,7 @@ from uuid import UUID
 from app.application.approvals.service import ApprovalService
 from app.application.auth.authorization import AuthorizationService
 from app.application.auth.context import Principal
+from app.application.clinical_tools.contracts import FinalizeClinicalNoteOutput
 from app.application.errors import (
     ConfigurationError,
     ResourceNotFoundError,
@@ -53,11 +54,20 @@ class ClinicalWorkflowService:
         return current
 
     async def get_workflow(self, workflow_id: UUID, principal: Principal) -> WorkflowRun:
-        await self._authorize(principal, workflow_id, (Permission.VIEW_ALL_RUNS,))
+        await self._authorize(principal, workflow_id, (Permission.VIEW_OWN_RUNS,))
         workflow = await self._workflows.get_by_id(workflow_id)
         if workflow is None:
             raise ResourceNotFoundError(f"Workflow {workflow_id} not found.")
         return workflow
+
+    async def get_final_note(
+        self, workflow_id: UUID, principal: Principal
+    ) -> FinalizeClinicalNoteOutput:
+        await self._authorize(principal, workflow_id, (Permission.VIEW_OWN_RUNS,))
+        note = await self._workflows.get_final_note(workflow_id)
+        if note is None:
+            raise ResourceNotFoundError("No finalized clinical note is available yet.")
+        return note
 
     async def resume_workflow(self, workflow_id: UUID, principal: Principal) -> None:
         """Resume an approved workflow using the existing #20/#22 JobService.resume path."""

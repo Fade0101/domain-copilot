@@ -40,8 +40,10 @@ from app.presentation.api.routes import (
     observability,
     resources,
     sessions,
+    workflows,
 )
 from app.presentation.api.schemas.errors import ERROR_RESPONSES
+from app.presentation.web.mount import mount_web_ui
 
 
 @asynccontextmanager
@@ -78,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(evaluations.router, prefix=settings.api_v1_str)
     app.include_router(approvals.router, prefix=settings.api_v1_str)
     app.include_router(observability.router, prefix=settings.api_v1_str)
+    app.include_router(workflows.router, prefix=settings.api_v1_str)
 
     # ``add_middleware`` prepends, so this ends up outermost and sees the request
     # before routing, dependency resolution or any handler allocates a body (#26).
@@ -85,4 +88,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
     configure_openapi(app, settings.api_v1_str)
+    mount_web_ui(app, settings.api_v1_str)
     return app

@@ -6,11 +6,16 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.application.clinical_tools.contracts import FinalizeClinicalNoteOutput
 from app.domain.workflow.entities import WorkflowRun
 from app.domain.workflow.state import ClinicalWorkflowState
 
 
 class IWorkflowRunRepository(Protocol):
+    async def get_final_note(self, workflow_id: UUID) -> FinalizeClinicalNoteOutput | None:
+        """Read only the persisted #18 final note; never substitute a draft/approval."""
+        ...
+
     async def get_by_id(self, workflow_id: UUID) -> WorkflowRun | None:
         """Return the workflow run by its primary key, or None if not found."""
         ...

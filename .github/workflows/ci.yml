@@ -81,6 +81,21 @@ jobs:
         run: |
           pytest
 
+      - name: Set up Node for web UI tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Web UI unit and browser tests
+        env:
+          WEB_TEST_PYTHON: python
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npx playwright install --with-deps chromium
+          npm run test:browser
+
       - name: Dependency audit
         run: |
           pip-audit -r requirements.txt

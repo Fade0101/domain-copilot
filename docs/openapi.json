@@ -442,6 +442,21 @@
         "title": "ClinicalNoteDraft",
         "type": "object"
       },
+      "ClinicalWorkflowState": {
+        "enum": [
+          "RESEARCH",
+          "SAFETY_CHECK",
+          "DRAFT",
+          "AWAITING_APPROVAL",
+          "FINALIZE",
+          "COMPLETED",
+          "REJECTED",
+          "FAILED",
+          "CANCELLED"
+        ],
+        "title": "ClinicalWorkflowState",
+        "type": "string"
+      },
       "CreateSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -689,6 +704,59 @@
           "created_at"
         ],
         "title": "FinalizationRequest",
+        "type": "object"
+      },
+      "FinalizeClinicalNoteOutput": {
+        "properties": {
+          "approval_id": {
+            "format": "uuid",
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "draft_id": {
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "finalized_at": {
+            "format": "date-time",
+            "title": "Finalized At",
+            "type": "string"
+          },
+          "finalized_by": {
+            "format": "uuid",
+            "title": "Finalized By",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "note_id": {
+            "format": "uuid",
+            "title": "Note Id",
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "workflow_id",
+          "draft_id",
+          "approval_id",
+          "note",
+          "finalized_by",
+          "finalized_at",
+          "created"
+        ],
+        "title": "FinalizeClinicalNoteOutput",
         "type": "object"
       },
       "IngestionAcceptedResponse": {
@@ -1904,6 +1972,35 @@
         "title": "SpanResponse",
         "type": "object"
       },
+      "StartWorkflowRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "case_summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Case Summary",
+            "type": "string"
+          },
+          "clinical_question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Clinical Question",
+            "type": "string"
+          },
+          "patient_context": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Patient Context",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clinical_question",
+          "case_summary"
+        ],
+        "title": "StartWorkflowRequest",
+        "type": "object"
+      },
       "SubmitJobRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2244,6 +2341,83 @@
           "notice"
         ],
         "title": "UsageResponse",
+        "type": "object"
+      },
+      "WorkflowAcceptedResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "status_url": {
+            "title": "Status Url",
+            "type": "string"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "state",
+          "status_url",
+          "workflow_id"
+        ],
+        "title": "WorkflowAcceptedResponse",
+        "type": "object"
+      },
+      "WorkflowStatusResponse": {
+        "properties": {
+          "correlation_id": {
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClinicalWorkflowState"
+          },
+          "workflow_id": {
+            "format": "uuid",
+            "title": "Workflow Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "owner_id",
+          "correlation_id",
+          "job_id",
+          "state",
+          "created_at"
+        ],
+        "title": "WorkflowStatusResponse",
         "type": "object"
       }
     },
@@ -5322,6 +5496,157 @@
         ]
       }
     },
+    "/api/v1/runs": {
+      "post": {
+        "description": "Start the registered clinical workflow. The worker creates its durable run.\n\nRoles: analyst, reviewer, admin. Owner only for analyst; reviewer/admin may view all runs. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "start_workflow_api_v1_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "NOT_AUTHENTICATED. WWW-Authenticate: Bearer.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED or RESOURCE_FORBIDDEN."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "JOB_STORE_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, APPROVAL_STORE_UNAVAILABLE or HISTORY_STORE_UNAVAILABLE. Static, sanitized detail."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Start Workflow",
+        "tags": [
+          "workflows"
+        ],
+        "x-ownership": "Owner only for analyst; reviewer/admin may view all runs.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
     "/api/v1/runs/{run_id}": {
       "get": {
         "description": "Roles: analyst, reviewer, admin. Owner only for analyst; reviewer/admin may view all runs. Identity and current role come from the validated JWT and stored user.",
@@ -6107,6 +6432,458 @@
         ],
         "x-ownership": "VIEW_ALL_RUNS permits cross-owner clinical review.",
         "x-roles": [
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/runs/{workflow_id}/note": {
+      "get": {
+        "description": "Return the immutable final row; an approved draft alone returns 404.\n\nRoles: analyst, reviewer, admin. Owner only for analyst; reviewer/admin may view all runs. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "finalized_note_api_v1_runs__workflow_id__note_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinalizeClinicalNoteOutput"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "NOT_AUTHENTICATED. WWW-Authenticate: Bearer.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED or RESOURCE_FORBIDDEN."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "JOB_STORE_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, APPROVAL_STORE_UNAVAILABLE or HISTORY_STORE_UNAVAILABLE. Static, sanitized detail."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Finalized Note",
+        "tags": [
+          "workflows"
+        ],
+        "x-ownership": "Owner only for analyst; reviewer/admin may view all runs.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/runs/{workflow_id}/resume": {
+      "post": {
+        "description": "Request guarded finalization; requires a persisted APPROVED decision.\n\nRoles: analyst, reviewer, admin. Owner only for analyst; reviewer/admin may view all runs. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "resume_workflow_api_v1_runs__workflow_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "NOT_AUTHENTICATED. WWW-Authenticate: Bearer.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED or RESOURCE_FORBIDDEN."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "JOB_STORE_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, APPROVAL_STORE_UNAVAILABLE or HISTORY_STORE_UNAVAILABLE. Static, sanitized detail."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resume Workflow",
+        "tags": [
+          "workflows"
+        ],
+        "x-ownership": "Owner only for analyst; reviewer/admin may view all runs.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/runs/{workflow_id}/status": {
+      "get": {
+        "description": "Roles: analyst, reviewer, admin. Owner only for analyst; reviewer/admin may view all runs. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "workflow_status_api_v1_runs__workflow_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "NOT_AUTHENTICATED. WWW-Authenticate: Bearer.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED or RESOURCE_FORBIDDEN."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "JOB_STORE_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, APPROVAL_STORE_UNAVAILABLE or HISTORY_STORE_UNAVAILABLE. Static, sanitized detail."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Workflow Status",
+        "tags": [
+          "workflows"
+        ],
+        "x-ownership": "Owner only for analyst; reviewer/admin may view all runs.",
+        "x-roles": [
+          "analyst",
           "reviewer",
           "admin"
         ]

@@ -52,6 +52,9 @@ class InMemoryWorkflowRepo(IWorkflowRunRepository):
     async def get_by_id(self, workflow_id: UUID) -> WorkflowRun | None:
         return self.runs.get(workflow_id)
 
+    async def get_final_note(self, workflow_id: UUID) -> None:
+        return None
+
     async def save(self, run: WorkflowRun) -> None:
         self.runs[run.id] = run
 
