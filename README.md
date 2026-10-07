@@ -128,6 +128,22 @@ must first register the #16 draft through the internal approval service. See
 [Human Approval Gate](docs/APPROVALS.md) for that contract and the durable
 finalization handoff. #19 does not run an orchestrator or finalize notes directly.
 
+## Observability
+
+Ticket #23 adds durable traces for synchronous asks and async execution, including
+retrieval, agents, tools and provider calls. Send a UUID in `X-Correlation-ID`, or
+use the generated value returned in that response header. Query
+`GET /api/v1/traces`, `GET /api/v1/traces/{id}/spans`, and `GET /api/v1/usage`
+with your bearer token. Filters include run/job, correlation, user and time.
+Ownership is enforced by the existing authorization rules.
+
+Costs use explicit `OBSERVABILITY__RATES` configuration and are labelled estimates;
+unknown prices or token counters remain unavailable. `/health` reports process
+liveness. `/ready` probes PostgreSQL, Redis, local embeddings, and each configured
+chat provider, returning 503 when a probe fails or times out. An unused fallback
+should be disabled with `LLM__FALLBACK=`. See [Observability](docs/OBSERVABILITY.md)
+for the query contract, rate configuration, readiness scope and accounting limits.
+
 ## Documentation
 
 - [BRD](docs/BRD.md) — business requirements and the traceability matrix

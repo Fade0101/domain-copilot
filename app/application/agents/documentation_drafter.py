@@ -26,6 +26,8 @@ from app.application.agents.contracts import (
 from app.application.agents.evidence import VerifiedEvidenceRegistry
 from app.application.clinical_tools.contracts import ToolName, draft_digest
 from app.application.clinical_tools.execution import ClinicalToolExecutor
+from app.application.observability.context import current_trace, get_current_correlation_id
+from app.application.observability.recording import observe
 from app.application.ports.audit import AuditEntry
 from app.application.ports.llm import (
     CompletionRequest,
@@ -80,6 +82,16 @@ class DocumentationDrafterAgent:
         return self._tools
 
     async def execute(self, verdict: SafetyVerdict, case: CaseSummary) -> ClinicalNoteDraft:
+        async with observe(self._observer, "agent.documentation_drafter", "agent") as data:
+            result = await self._execute(verdict, case)
+            data.update(
+                outcome="refused" if result.refused else "completed",
+                safety_status=result.safety_status.value,
+                requires_review=result.requires_review,
+            )
+            return result
+
+    async def _execute(self, verdict: SafetyVerdict, case: CaseSummary) -> ClinicalNoteDraft:
         """Compose a reviewable clinical note draft from safety-vetted findings."""
         if not isinstance(verdict, SafetyVerdict):
             raise TypeError("verdict must be a SafetyVerdict")
@@ -232,13 +244,19 @@ class DocumentationDrafterAgent:
                             await self._observer.sink.record(
                                 AuditEntry(
                                     action="unauthorized_tool_rejected",
-                                    actor_id="documentation_drafter",
+                                    actor_id=(
+                                        str(context.user_id)
+                                        if (context := current_trace())
+                                        else "documentation_drafter"
+                                    ),
                                     actor_role="agent",
                                     outcome="denied",
                                     occurred_at=self._observer.clock.now(),
                                     resource_type="workflow",
                                     resource_id=str(verdict.workflow_id),
-                                    correlation_id=str(verdict.workflow_id),
+                                    correlation_id=(
+                                        get_current_correlation_id() or str(verdict.workflow_id)
+                                    ),
                                     detail={
                                         "attempted_tool": call.name,
                                         "workflow_id": str(verdict.workflow_id),

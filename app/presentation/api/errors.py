@@ -38,6 +38,7 @@ from app.application.errors import (
     ConfigurationError,
     JobStoreError,
     KnowledgeUnavailableError,
+    ObservabilityUnavailableError,
     ResourceNotFoundError,
     ResourceOwnershipError,
     UploadTooLargeError,
@@ -67,6 +68,14 @@ def _body(detail: str, code: str) -> dict[str, str]:
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register every domain/application error handler plus the fail-safe catch-all."""
+
+    @app.exception_handler(ObservabilityUnavailableError)
+    async def _handle_observability(_: Request, exc: ObservabilityUnavailableError) -> JSONResponse:
+        logger.error("trace storage unavailable: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content=_body("Trace storage is unavailable", "OBSERVABILITY_UNAVAILABLE"),
+        )
 
     @app.exception_handler(ApprovalStoreError)
     async def _handle_approval_storage(_: Request, exc: ApprovalStoreError) -> JSONResponse:
@@ -150,9 +159,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=400, content=_body(str(exc), "APPLICATION_ERROR"))
 
     @app.exception_handler(Exception)
-    async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
+    async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
         # Last line of defense: never expose the exception text to the caller.
         logger.error("unhandled exception: %s", exc, exc_info=exc)
         return JSONResponse(
-            status_code=500, content=_body(_INTERNAL_ERROR_MESSAGE, "INTERNAL_ERROR")
+            status_code=500,
+            content=_body(_INTERNAL_ERROR_MESSAGE, "INTERNAL_ERROR"),
+            headers={"X-Correlation-ID": getattr(request.state, "correlation_id", "")},
         )

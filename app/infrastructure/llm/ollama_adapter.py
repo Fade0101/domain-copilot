@@ -18,6 +18,20 @@ from app.application.ports.llm import (
 )
 
 
+def _usage(data: dict[str, Any]) -> dict[str, int] | None:
+    counts = {
+        target: value
+        for target, source in (
+            ("prompt_tokens", "prompt_eval_count"),
+            ("completion_tokens", "eval_count"),
+        )
+        if type(value := data.get(source)) is int and value >= 0
+    }
+    if len(counts) == 2:
+        counts["total_tokens"] = counts["prompt_tokens"] + counts["completion_tokens"]
+    return counts or None
+
+
 class OllamaAdapter(ILLMProvider):
     """Adapter for local Ollama LLM via HTTP API."""
 
@@ -106,18 +120,11 @@ class OllamaAdapter(ILLMProvider):
                     )
                 )
 
-        usage = None
-        if "prompt_eval_count" in data:
-            usage = {
-                "prompt_tokens": data.get("prompt_eval_count", 0),
-                "completion_tokens": data.get("eval_count", 0),
-                "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0),
-            }
-
         return CompletionResponse(
             content=message.get("content"),
             tool_calls=tool_calls,
-            usage=usage,
+            usage=_usage(data),
+            model=data.get("model", self._default_model),
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
@@ -158,21 +165,12 @@ class OllamaAdapter(ILLMProvider):
                                 )
                             )
 
-                    usage = None
-                    if data.get("done") and "prompt_eval_count" in data:
-                        usage = {
-                            "prompt_tokens": data.get("prompt_eval_count", 0),
-                            "completion_tokens": data.get("eval_count", 0),
-                            "total_tokens": (
-                                data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
-                            ),
-                        }
-
                     yield StreamChunk(
                         delta=message.get("content"),
                         tool_calls=tool_calls,
                         finish_reason="stop" if data.get("done") else None,
-                        usage=usage,
+                        usage=_usage(data) if data.get("done") else None,
+                        model=data.get("model", self._default_model),
                     )
 
         except Exception as e:

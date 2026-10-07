@@ -804,7 +804,8 @@ async def test_job_cannot_be_bound_to_two_review_workflows(gate: Gate) -> None:
 async def test_downgrade_refuses_to_erase_clinical_audit(gate: Gate) -> None:
     await gate.register()
     with pytest.raises(RuntimeError, match="Cannot discard"):
-        await asyncio.to_thread(migrate, gate.url, "-1", downgrade=True)
+        # Exercise the protected recovery/approval boundary, regardless of later heads.
+        await asyncio.to_thread(migrate, gate.url, "f19b6a2d9041", downgrade=True)
 
 
 async def test_approve_preserves_exact_note_and_finalizer_rechecks_reviewer_role(

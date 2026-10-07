@@ -113,6 +113,7 @@ def jobs(ingestion_database: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[E
         # password for each test and normal seeding never overwrites a password.
         with runtime.engine.begin() as connection:
             connection.execute(sa.text("DELETE FROM documents"))
+            connection.execute(sa.text("DELETE FROM traces"))
             connection.execute(sa.text("DELETE FROM jobs"))
             connection.execute(sa.text("DELETE FROM users"))
             connection.execute(sa.text("DELETE FROM t8_embedding_calls"))
