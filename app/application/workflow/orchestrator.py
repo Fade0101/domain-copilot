@@ -110,9 +110,7 @@ class ClinicalWorkflowOrchestrator:
         # 1. Establish WorkflowRun identity and binding
         raw_workflow_id = payload.get("workflow_id")
         workflow_id = (
-            UUID(raw_workflow_id)
-            if raw_workflow_id
-            else context.correlation_id or uuid4()
+            UUID(raw_workflow_id) if raw_workflow_id else context.correlation_id or uuid4()
         )
         case_summary_text = payload["case_summary"]
         clinical_question_text = payload["clinical_question"]
@@ -204,9 +202,7 @@ class ClinicalWorkflowOrchestrator:
                         "error": str(exc),
                         "fallback": {
                             "context": fallback_result.context,
-                            "citations": [
-                                encode_citation(c) for c in fallback_result.citations
-                            ],
+                            "citations": [encode_citation(c) for c in fallback_result.citations],
                             "refusal_reason": fallback_result.refusal_reason,
                         },
                     }
@@ -406,9 +402,7 @@ class ClinicalWorkflowOrchestrator:
         await context.check_cancelled()
 
         if decision is None or decision.status != ApprovalStatus.APPROVED:
-            raise ApprovalRequiredError(
-                "A persisted APPROVED decision is required to finalize."
-            )
+            raise ApprovalRequiredError("A persisted APPROVED decision is required to finalize.")
 
         async def execute_finalization() -> dict[str, Any]:
             record_iteration()

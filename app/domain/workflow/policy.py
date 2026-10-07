@@ -22,7 +22,7 @@ class WorkflowPolicy:
 
     def check_iteration(self, iteration_count: int) -> None:
         """Enforce iteration count <= 10.
-        
+
         Boundary:
         iteration_count <= 10 -> allowed
         iteration_count > 10 (i.e. 11) -> WorkflowIterationLimitExceededError
@@ -35,7 +35,7 @@ class WorkflowPolicy:
 
     def check_timeout(self, elapsed_seconds: float) -> None:
         """Enforce execution duration <= 60.0s.
-        
+
         Boundary:
         elapsed_seconds <= 60.0 -> allowed
         elapsed_seconds > 60.0 -> WorkflowStepTimeoutError
@@ -48,7 +48,7 @@ class WorkflowPolicy:
 
     def is_retry_permitted(self, retry_count: int) -> bool:
         """Enforce maximum 3 retries per step.
-        
+
         retry_count is the number of previous retries for this step.
         0, 1, 2 -> next retry permitted (making it retry 1, 2, 3)
         >= 3 -> no further retry permitted (4th retry blocked)

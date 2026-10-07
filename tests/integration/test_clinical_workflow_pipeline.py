@@ -202,9 +202,7 @@ async def test_end_to_end_clinical_workflow_happy_path() -> None:
 
     class RealMockDrafter:
         async def execute(self, verdict: SafetyVerdict, case: CaseSummary) -> ClinicalNoteDraft:
-            note = (
-                "Assessment and Plan: Essential hypertension. Start lisinopril 10mg po daily."
-            )
+            note = "Assessment and Plan: Essential hypertension. Start lisinopril 10mg po daily."
             return make_test_draft(case.workflow_id, note_text=note)
 
     tool_executed = False

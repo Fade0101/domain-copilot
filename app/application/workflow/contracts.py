@@ -22,7 +22,7 @@ class ClinicalWorkflowInput:
 @dataclass(frozen=True, slots=True)
 class InformationalFallbackResult:
     """Informational context emitted when guideline research fails.
-    
+
     Hard invariant (BRD AC-5.5, Part 6):
     This context is strictly informational. It CANNOT emit a clinical note,
     cannot finalize a note, cannot bypass Safety Checker, and cannot advance

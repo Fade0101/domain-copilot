@@ -82,8 +82,6 @@ async def test_rejection_marks_workflow_rejected() -> None:
         clock=FakeClock(),
     )
 
-
-
     context = FakeJobContext(
         payload={
             "workflow_id": str(workflow_id),
@@ -169,8 +167,6 @@ async def test_approval_executes_finalizer_and_completes_workflow() -> None:
         fallback=InformationalRagFallback(None),  # type: ignore[arg-type]
         clock=FakeClock(),
     )
-
-
 
     context = FakeJobContext(
         payload={
