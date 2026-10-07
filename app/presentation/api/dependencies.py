@@ -23,6 +23,7 @@ from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.use_cases import HybridRetrievalUseCase
+from app.application.workflow.service import ClinicalWorkflowService
 from app.core.container import Container, get_container
 
 
@@ -84,3 +85,8 @@ async def get_hybrid_retrieval_use_case() -> HybridRetrievalUseCase:
 
 async def get_ask_use_case() -> AskUseCase:
     return get_container().ask_use_case()
+
+
+async def get_workflow_service() -> ClinicalWorkflowService:
+    """Provide the clinical workflow service built by the container (Ticket #17)."""
+    return get_container().workflow_service
