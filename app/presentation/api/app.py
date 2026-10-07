@@ -28,6 +28,7 @@ from app.core.container import get_container
 from app.presentation.api.correlation import CorrelationMiddleware
 from app.presentation.api.errors import register_exception_handlers
 from app.presentation.api.openapi import configure_openapi
+from app.presentation.api.request_limits import RequestSizeLimitMiddleware
 from app.presentation.api.routes import (
     approvals,
     auth,
@@ -77,6 +78,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(evaluations.router, prefix=settings.api_v1_str)
     app.include_router(approvals.router, prefix=settings.api_v1_str)
     app.include_router(observability.router, prefix=settings.api_v1_str)
+
+    # ``add_middleware`` prepends, so this ends up outermost and sees the request
+    # before routing, dependency resolution or any handler allocates a body (#26).
+    app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.api.max_request_bytes)
 
     register_exception_handlers(app)
     configure_openapi(app, settings.api_v1_str)

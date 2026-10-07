@@ -22,6 +22,7 @@ Each ADR uses: **Status** · **Context** · **Decision** · **Consequences**
 | [ADR-006](./ADR-006-configuration-prompts-and-error-model.md) | Configuration, prompts & error model | Accepted | #3 |
 | [ADR-007](./ADR-007-provider-abstraction-and-selection.md) | Provider abstraction & selection | Accepted | #7 |
 | [ADR-008](./ADR-008-hybrid-retrieval-and-grounded-qa.md) | Hybrid retrieval, cross-encoder scores and grounded Q&A | Accepted | #10 |
+| [ADR-009](./ADR-009-pii-phi-handling-and-redaction.md) | Healthcare PII/PHI Handling, Evaluation, and Redaction Decision | Accepted | #26 |
 
 ## Reserved (not yet written)
 

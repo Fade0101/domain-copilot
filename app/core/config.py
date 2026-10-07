@@ -120,6 +120,25 @@ class EvaluationSettings(BaseModel):
     corpus_manifest: str = "data/corpus/manifest.json"
 
 
+class ApiSettings(BaseModel):
+    """HTTP edge limits applied before a handler or validator sees a request (#26).
+
+    Ingestion already bounds uploaded bytes while streaming them
+    (``ingestion.max_upload_bytes``), but every other endpoint takes a JSON body
+    that Starlette buffers in memory before pydantic validates it. A field-level
+    ``max_length`` therefore cannot stop an oversized body -- the memory is already
+    spent by the time the constraint is evaluated. ``max_request_bytes`` is the
+    outer bound that can.
+
+    The default is deliberately well above the largest legitimate JSON body (an
+    edited clinical note plus a rejection reason is a few tens of kilobytes) and
+    well below ``ingestion.max_upload_bytes``, so document uploads keep their own
+    larger, streamed budget.
+    """
+
+    max_request_bytes: int = Field(default=1_048_576, gt=0, le=104_857_600)
+
+
 class OrchestrationLimits(BaseModel):
     """Agent orchestration guardrails (SDD A.5.2)."""
 
@@ -237,6 +256,7 @@ class Settings(BaseSettings):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    api: ApiSettings = Field(default_factory=ApiSettings)
 
     def is_production(self) -> bool:
         """Return whether this process is configured as a production deployment.

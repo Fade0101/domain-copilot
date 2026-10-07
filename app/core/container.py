@@ -69,6 +69,7 @@ from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IDocumentRepository, IUserRepository
 from app.application.ports.reranking import IReranker
 from app.application.ports.retrieval import IRetrievalStore
+from app.application.ports.security import IPiiRedactor
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
 from app.application.ports.workflow import IWorkflowRunRepository
@@ -127,6 +128,7 @@ from app.infrastructure.queue.celery_queue import (
     register_job_task,
 )
 from app.infrastructure.reranking.local_adapter import LocalCrossEncoderReranker
+from app.infrastructure.security.pii import DeterministicPiiRedactor
 from app.infrastructure.system.clock import SystemClock
 from app.infrastructure.system.identifiers import UuidGenerator
 
@@ -312,6 +314,7 @@ class Container:
         )
         self._audit_sink: IAuditSink = LoggingAuditSink()
         self._authorization_service = AuthorizationService(ownership_query=self._ownership_query)
+        self._pii_redactor: IPiiRedactor = DeterministicPiiRedactor()
         self._jobs: JobRuntime | None = None
 
         # --- Retrieval (Ticket #9) ------------------------------------------
@@ -395,6 +398,10 @@ class Container:
     @property
     def ownership_query(self) -> IOwnershipQuery:
         return self._ownership_query
+
+    @property
+    def pii_redactor(self) -> IPiiRedactor:
+        return self._pii_redactor
 
     @property
     def database(self) -> Database | None:
