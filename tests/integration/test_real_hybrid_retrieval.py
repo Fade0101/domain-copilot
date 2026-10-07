@@ -99,7 +99,7 @@ def test_real_dense_keyword_rrf_bge_citations_and_refusal(
             ).scalar_one()
         assert trace["dense_count"] == 3 and trace["keyword_count"] == 1
         assert trace["fused_count"] == 3 and trace["rrf_k"] == 60
-        assert trace["reranker_model"] == MODEL_NAME == "BAAI/bge-reranker-v2-m3"
+        assert trace["reranker_model"] == MODEL_NAME == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         assert reranker._model is not None
         assert trace["reranked"][0]["rrf_score"] == pytest.approx(2 / 61)
         refusal = api.client.post(

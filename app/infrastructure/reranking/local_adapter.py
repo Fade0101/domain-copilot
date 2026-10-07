@@ -15,20 +15,24 @@ from app.application.ports.retrieval import SearchHit
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder
 
-MODEL_NAME = "BAAI/bge-reranker-v2-m3"
-MODEL_REVISION = "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
+MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+MODEL_REVISION = "233902d25c440f23af6f7d6e94d2946bac0bee0a"
 
 
 class LocalCrossEncoderReranker(IReranker):
     def __init__(
         self,
         *,
+        model_name: str | None = None,
+        revision: str | None = None,
         device: str = "cpu",
         batch_size: int = 4,
         max_length: int = 1024,
         cache_directory: str | None = None,
         model: CrossEncoder | None = None,
     ) -> None:
+        self._model_name = model_name or MODEL_NAME
+        self._revision = revision or MODEL_REVISION
         self._device = device
         self._batch_size = batch_size
         self._max_length = max_length
@@ -41,15 +45,15 @@ class LocalCrossEncoderReranker(IReranker):
 
     @property
     def model_name(self) -> str:
-        return MODEL_NAME
+        return self._model_name
 
     def _get_model(self) -> CrossEncoder:
         if self._model is None:
             from sentence_transformers import CrossEncoder
 
             self._model = CrossEncoder(
-                MODEL_NAME,
-                revision=MODEL_REVISION,
+                self._model_name,
+                revision=self._revision,
                 device=self._device,
                 max_length=self._max_length,
                 cache_folder=self._cache_directory,

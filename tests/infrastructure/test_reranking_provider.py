@@ -55,7 +55,7 @@ async def test_adapter_scores_query_chunk_pairs_with_explicit_sigmoid() -> None:
 async def test_empty_input_does_not_load_model() -> None:
     adapter = LocalCrossEncoderReranker()
     try:
-        assert adapter.model_name == "BAAI/bge-reranker-v2-m3"
+        assert adapter.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         assert await adapter.rerank("clinic", []) == []
         assert adapter._model is None
     finally:
@@ -75,7 +75,7 @@ async def test_lazy_loader_pins_bge_revision_and_disables_remote_code(monkeypatc
     adapter = LocalCrossEncoderReranker()
     try:
         await adapter.rerank("clinic", [hit(1)])
-        assert captured["name"] == MODEL_NAME == "BAAI/bge-reranker-v2-m3"
+        assert captured["name"] == MODEL_NAME == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         assert captured["revision"] == MODEL_REVISION
         assert len(MODEL_REVISION) == 40
         assert captured["trust_remote_code"] is False and captured["device"] == "cpu"
