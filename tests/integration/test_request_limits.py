@@ -28,6 +28,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import Response
 from starlette.types import Message, Scope
 
 from app.core.config import ApiSettings, Settings
@@ -47,7 +48,7 @@ _INGEST_ROUTE = "/api/v1/documents/ingest?filename=note.md"
 
 def _settings(max_request_bytes: int) -> Settings:
     """Settings for a test, independent of any developer ``.env`` on the machine."""
-    return Settings(_env_file=None, api=ApiSettings(max_request_bytes=max_request_bytes))
+    return Settings(_env_file=None, api=ApiSettings(max_request_bytes=max_request_bytes))  # type: ignore[call-arg]
 
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def _body_of(byte_count: int) -> bytes:
     return prefix + (b"a" * pad) + suffix
 
 
-def _post(client: TestClient, content: object, **kwargs: object) -> object:
+def _post(client: TestClient, content: object, **kwargs: object) -> Response:
     return client.post(
         _LOGIN_ROUTE,
         content=content,  # type: ignore[arg-type]
@@ -245,16 +246,16 @@ class TestConfiguration:
     def test_the_default_limit_sits_below_the_upload_budget(self) -> None:
         # Uploads stream against their own larger budget, so the JSON limit must not
         # be the reason a legitimate document upload fails.
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
         assert settings.api.max_request_bytes < settings.ingestion.max_upload_bytes
 
     def test_the_limit_is_configurable_from_the_environment(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("API__MAX_REQUEST_BYTES", "2048")
-        assert Settings(_env_file=None).api.max_request_bytes == 2048
+        assert Settings(_env_file=None).api.max_request_bytes == 2048  # type: ignore[call-arg]
 
     def test_an_out_of_range_limit_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("API__MAX_REQUEST_BYTES", "0")
         with pytest.raises(ValueError):
-            Settings(_env_file=None)
+            Settings(_env_file=None)  # type: ignore[call-arg]
