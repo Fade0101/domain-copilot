@@ -24,7 +24,13 @@ async def test_chat_probe_checks_model_access_without_spending_generation_tokens
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(
-            200, json={"id": "test-model", "active": True, "model_info": {"size": 1}}
+            200,
+            json={
+                "id": "test-model",
+                "active": True,
+                "data": [{"id": "test-model", "active": True}],
+                "model_info": {"size": 1},
+            },
         )
 
     original = httpx.AsyncClient
@@ -36,14 +42,20 @@ async def test_chat_probe_checks_model_access_without_spending_generation_tokens
     request = requests[0]
     assert "/chat" not in request.url.path and "/completions" not in request.url.path
     if provider == "groq":
-        assert request.method == "GET" and request.url.path == "/openai/v1/models/test-model"
+        assert request.method == "GET" and request.url.path == "/openai/v1/models"
     else:
         assert request.url.path == "/api/show"
         assert json.loads(request.content) == {"model": "test-model"}
 
 
 @pytest.mark.parametrize(
-    "body", [{}, {"id": "wrong", "active": True}, {"id": "test-model", "active": False}]
+    "body",
+    [
+        {},
+        {"data": []},
+        {"data": [{"id": "wrong", "active": True}]},
+        {"data": [{"id": "test-model", "active": False}]},
+    ],
 )
 async def test_groq_probe_does_not_report_missing_or_disabled_models_as_ready(monkeypatch, body):
     original = httpx.AsyncClient

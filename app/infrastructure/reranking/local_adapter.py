@@ -15,8 +15,8 @@ from app.application.ports.retrieval import SearchHit
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder
 
-MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-MODEL_REVISION = "main"
+MODEL_NAME = "BAAI/bge-reranker-v2-m3"
+MODEL_REVISION = "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
 
 
 class LocalCrossEncoderReranker(IReranker):
@@ -88,7 +88,7 @@ class LocalCrossEncoderReranker(IReranker):
     async def rerank(self, query: str, candidates: list[SearchHit]) -> list[RerankScore]:
         if not candidates:
             return []
-        if not self._available.acquire(timeout=15.0):
+        if not self._available.acquire(blocking=False):
             raise ProviderUnavailableError("Local cross-encoder is busy")
         try:
             future = asyncio.get_running_loop().run_in_executor(
