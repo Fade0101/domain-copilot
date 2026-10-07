@@ -1,7 +1,7 @@
 """Add durable session messages for Ticket #24's history contract.
 
 Revision ID: d24a1b9c830f
-Revises: c22a4b8f901d
+Revises: d23b7e9a0142
 """
 
 import sqlalchemy as sa
@@ -9,7 +9,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "d24a1b9c830f"
-down_revision = "c22a4b8f901d"
+down_revision = "d23b7e9a0142"
 branch_labels = None
 depends_on = None
 
