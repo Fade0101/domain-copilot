@@ -61,6 +61,7 @@ class CompletionResponse:
     content: str | None = None
     tool_calls: list[ToolCall] | None = None
     usage: dict[str, int] | None = None
+    model: str | None = None
 
 
 @dataclass
@@ -71,6 +72,7 @@ class StreamChunk:
     tool_calls: list[ToolCall] | None = None
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
+    model: str | None = None
 
 
 @runtime_checkable

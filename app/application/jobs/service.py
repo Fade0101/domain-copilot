@@ -15,6 +15,7 @@ from app.application.errors import (
     UnknownPrincipalError,
 )
 from app.application.jobs.registry import JobHandlerRegistry, validate_json
+from app.application.observability.context import get_current_correlation_id
 from app.application.ports.jobs import IJobStore
 from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IUserRepository
@@ -103,7 +104,8 @@ class JobService:
             created_at=now,
             updated_at=now,
             user_id=user_id,
-            correlation_id=correlation_id or UUID(self._ids.new_id()),
+            correlation_id=correlation_id
+            or UUID(get_current_correlation_id() or self._ids.new_id()),
         )
 
     async def dispatch(self, job_id: UUID) -> Job:

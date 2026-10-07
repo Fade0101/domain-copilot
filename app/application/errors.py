@@ -24,6 +24,10 @@ class ApplicationError(Exception):
     """Base class for application/use-case orchestration failures."""
 
 
+class ObservabilityUnavailableError(ApplicationError):
+    """The durable trace/accounting store is unavailable (HTTP 503)."""
+
+
 class ResourceNotFoundError(ApplicationError):
     """A requested resource could not be found. Maps to HTTP 404 at the boundary."""
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -77,7 +78,11 @@ def create_celery_app(
 def register_job_task(app: Celery, runner: JobRunner) -> None:
     @app.task(name=TASK_NAME, ignore_result=True, shared=False, lazy=False)
     def execute_job(job_id: str) -> None:
-        asyncio.run(runner.run(UUID(job_id)))
+        # Async persistence (including trace writes) uses psycopg on some deployments.
+        # Its Windows sockets require a selector loop, scoped to this task only.
+        loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
+        with asyncio.Runner(loop_factory=loop_factory) as runtime:
+            runtime.run(runner.run(UUID(job_id)))
 
 
 class CeleryJobQueue(IJobQueue):

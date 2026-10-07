@@ -111,6 +111,7 @@ class GroqAdapter(ILLMProvider):
             content=choice.message.content,
             tool_calls=tool_calls,
             usage=usage,
+            model=getattr(response, "model", self._default_model),
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
@@ -128,12 +129,9 @@ class GroqAdapter(ILLMProvider):
         try:
             async for chunk in response_stream:
                 choice = chunk.choices[0] if chunk.choices else None
-                if not choice:
-                    continue
-
-                delta = choice.delta
+                delta = choice.delta if choice else None
                 tool_calls = None
-                if delta.tool_calls:
+                if delta and delta.tool_calls:
                     tool_calls = [
                         ToolCall(
                             id=tc.id or "",
@@ -150,10 +148,11 @@ class GroqAdapter(ILLMProvider):
                     usage = chunk.x_groq["usage"]
 
                 yield StreamChunk(
-                    delta=delta.content,
+                    delta=delta.content if delta else None,
                     tool_calls=tool_calls,
-                    finish_reason=choice.finish_reason,
+                    finish_reason=choice.finish_reason if choice else None,
                     usage=usage,
+                    model=getattr(chunk, "model", self._default_model),
                 )
         except Exception as e:
             raise self._map_error(e) from e

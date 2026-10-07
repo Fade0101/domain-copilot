@@ -54,6 +54,9 @@ from app.application.jobs.generation import GenerationJobHandler
 from app.application.jobs.registry import JobHandlerRegistry
 from app.application.jobs.runner import JobRunner
 from app.application.jobs.service import JobService
+from app.application.observability.cost_service import CostService
+from app.application.observability.health_service import HealthService
+from app.application.observability.trace_service import TraceService
 from app.application.ports.approvals import IApprovalStore
 from app.application.ports.audit import IAuditSink
 from app.application.ports.embeddings import IEmbeddingProvider
@@ -82,15 +85,19 @@ from app.core.evaluation import EvaluationComponents, build_evaluation_component
 from app.core.knowledge import build_hybrid_retrieval
 from app.domain.auth.value_objects import Password
 from app.domain.documents.ingestion import IngestionOptions
+from app.domain.observability.pricing import CostEstimator, ModelRate
 from app.infrastructure.audit.logging_sink import LoggingAuditSink
 from app.infrastructure.audit.retrieval_sink import PostgresRetrievalAuditSink
 from app.infrastructure.auth.password_hasher import BcryptPasswordHasher
 from app.infrastructure.auth.token_service import JwtTokenService
 from app.infrastructure.embeddings.local_adapter import LocalEmbeddingAdapter
+from app.infrastructure.embeddings.observed import ObservedEmbeddingProvider
 from app.infrastructure.ingestion.extractors import DocumentExtractor
 from app.infrastructure.llm.fallback import FallbackLLMProvider
 from app.infrastructure.llm.groq_adapter import GroqAdapter
+from app.infrastructure.llm.observed import ObservedLLMProvider
 from app.infrastructure.llm.ollama_adapter import OllamaAdapter
+from app.infrastructure.observability.health import ChatProbe, DependencyHealthChecks
 from app.infrastructure.persistence.database import Database
 from app.infrastructure.persistence.in_memory.document_repository import (
     InMemoryDocumentRepository,
@@ -106,6 +113,7 @@ from app.infrastructure.persistence.sql.approval_store import PostgresApprovalSt
 from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestionStore
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
+from app.infrastructure.persistence.sql.trace_store import PostgresTraceStore
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 from app.infrastructure.persistence.sql.workflow_repository import (
     PostgresWorkflowRunRepository,
@@ -154,7 +162,9 @@ def _build_llm_adapter(name: str, settings: Settings) -> ILLMProvider:
     )
 
 
-def build_llm_provider(settings: Settings) -> ILLMProvider:
+def build_llm_provider(
+    settings: Settings, observer: RetrievalObserver | None = None
+) -> ILLMProvider:
     """Build the chat provider from configuration (BRD AR-2, ADR-007).
 
     ``settings.llm.provider`` selects the primary adapter and ``settings.llm.fallback``
@@ -163,12 +173,34 @@ def build_llm_provider(settings: Settings) -> ILLMProvider:
     error only); a blank/None fallback -- or one equal to the primary -- yields the
     bare primary adapter. Both names are validated, so invalid config fails safely.
     """
-    primary = _build_llm_adapter(settings.llm.provider, settings)
+
+    def adapter(name: str) -> ILLMProvider:
+        result = _build_llm_adapter(name, settings)
+        return (
+            ObservedLLMProvider(
+                result, observer, provider=name.strip().lower(), model=settings.llm.model
+            )
+            if observer is not None
+            else result
+        )
+
+    primary = adapter(settings.llm.provider)
     fallback_name = (settings.llm.fallback or "").strip().lower()
     if not fallback_name or fallback_name == settings.llm.provider.strip().lower():
         return primary
-    secondary = _build_llm_adapter(fallback_name, settings)
+    secondary = adapter(fallback_name)
     return FallbackLLMProvider(primary=primary, secondary=secondary)
+
+
+def build_cost_estimator(settings: Settings) -> CostEstimator:
+    return CostEstimator(
+        {
+            (rate.provider, rate.model): ModelRate(
+                rate.prompt_per_million, rate.completion_per_million, rate.source
+            )
+            for rate in settings.observability.rates
+        }
+    )
 
 
 def build_jwt_secret(settings: Settings) -> str:
@@ -249,13 +281,7 @@ class Container:
             settings.prompts.directory, strict=settings.prompts.strict
         )
 
-        # Chat provider (primary + optional transient-failure fallback) is chosen
-        # from configuration here -- the single composition root -- never hard-coded.
-        self._llm_provider: ILLMProvider = build_llm_provider(settings)
-
-        self._embedding_provider: IEmbeddingProvider = LocalEmbeddingAdapter(
-            model_name=settings.embedding.model
-        )
+        self._embedding_adapter = LocalEmbeddingAdapter(model_name=settings.embedding.model)
 
         # --- Authentication & RBAC (Ticket #5) ------------------------------
         # PostgreSQL when configured, in-memory otherwise. Both satisfy the same
@@ -312,9 +338,37 @@ class Container:
         retrieval_sink: IAuditSink = (
             self._audit_sink
             if self._database is None
-            else PostgresRetrievalAuditSink(self._database.session_factory, self._audit_sink)
+            else PostgresRetrievalAuditSink(
+                self._database.session_factory, self._audit_sink, build_cost_estimator(settings)
+            )
         )
         self._retrieval_observer = RetrievalObserver(retrieval_sink, self._clock)
+        self._llm_provider = build_llm_provider(settings, self._retrieval_observer)
+        self._embedding_provider: IEmbeddingProvider = ObservedEmbeddingProvider(
+            self._embedding_adapter,
+            self._retrieval_observer,
+            provider=settings.embedding.provider,
+            model=settings.embedding.model,
+        )
+        primary_name = settings.llm.provider.strip().lower()
+        names = {"llm_primary": primary_name}
+        fallback = (settings.llm.fallback or "").strip().lower()
+        if fallback and fallback != primary_name:
+            names["llm_fallback"] = fallback
+        self._health_checks = DependencyHealthChecks(
+            self._database.session_factory if self._database else None,
+            settings.queue.broker_url,
+            self._embedding_adapter,
+            {
+                name: ChatProbe(
+                    provider,
+                    settings.llm.model,
+                    settings.llm.ollama_base_url,
+                    settings.llm.api_key.get_secret_value() if settings.llm.api_key else "",
+                )
+                for name, provider in names.items()
+            },
+        )
 
     @property
     def llm_provider(self) -> ILLMProvider:
@@ -357,6 +411,11 @@ class Container:
 
     async def dispose(self) -> None:
         """Release process-wide resources. Called from the application lifespan."""
+        await self._health_checks.close()
+        self._embedding_adapter.close()
+        close = getattr(self._llm_provider, "aclose", None)
+        if close is not None:
+            await close()
         self._reranker.close()
         if self._jobs is not None:
             await self._jobs.close()
@@ -367,6 +426,24 @@ class Container:
     @property
     def reranker(self) -> IReranker:
         return self._reranker
+
+    def trace_service(self) -> TraceService:
+        if self._database is None:
+            raise ConfigurationError("DATABASE__URL is required for durable observability.")
+        return TraceService(
+            PostgresTraceStore(self._database.session_factory),
+            self._user_repository,
+            self._authorization_service,
+        )
+
+    def cost_service(self) -> CostService:
+        return CostService(self.trace_service())
+
+    def health_service(self) -> HealthService:
+        return HealthService(
+            self._health_checks,
+            timeout_seconds=self.settings.observability.readiness_timeout_seconds,
+        )
 
     def hybrid_retrieval_use_case(self) -> HybridRetrievalUseCase:
         if self._retrieval_store is None:
@@ -660,11 +737,23 @@ def build_job_runtime(
     embeddings = None
     ingestion_store = None
     evaluation_components = None
+    database = database or Database(settings.database.url, pooling=False)
+    observer = RetrievalObserver(
+        PostgresRetrievalAuditSink(
+            database.session_factory, LoggingAuditSink(), build_cost_estimator(settings)
+        ),
+        clock,
+    )
     if handlers is None:
         # API callers borrow the existing Database; workers use the same engine
         # factory without pooling across Celery's per-task asyncio.run event loops.
-        database = database or Database(settings.database.url, pooling=False)
         embeddings = LocalEmbeddingAdapter(model_name=settings.embedding.model)
+        observed_embeddings = ObservedEmbeddingProvider(
+            embeddings,
+            observer,
+            provider=settings.embedding.provider,
+            model=settings.embedding.model,
+        )
         ingestion_store = PostgresIngestionStore(database.session_factory)
         options = build_ingestion_options(settings)
         retrieval = PostgresRetrievalStore(
@@ -676,15 +765,15 @@ def build_job_runtime(
         evaluation_components = build_evaluation_components(
             settings,
             database,
-            embeddings,
+            observed_embeddings,
             retrieval,
             store,
             clock,
-            lambda: build_llm_provider(settings),
+            lambda: build_llm_provider(settings, observer),
         )
         handlers = [
             DiagnosticJobHandler(),
-            GenerationJobHandler(lambda: build_llm_provider(settings)),
+            GenerationJobHandler(lambda: build_llm_provider(settings, observer)),
             evaluation_components.handler,
             DocumentIngestionHandler(
                 ingestion_store,
@@ -693,7 +782,7 @@ def build_job_runtime(
                     max_characters=settings.ingestion.max_characters,
                 ),
                 StructureAwareChunker(embeddings),
-                IngestionEmbedder(embeddings, embeddings),
+                IngestionEmbedder(observed_embeddings, embeddings),
                 retrieval,
                 clock,
                 options,
@@ -716,6 +805,7 @@ def build_job_runtime(
         registry,
         clock,
         max_checkpoint_bytes=settings.queue.max_checkpoint_bytes,
+        observer=observer,
     )
     service = JobService(
         store,

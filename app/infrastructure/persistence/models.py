@@ -502,6 +502,13 @@ class TraceModel(Base):
     """An execution trace (FR-9), owned by the user whose request produced it."""
 
     __tablename__ = "traces"
+    __table_args__ = (
+        sa.Index("ix_traces_run_time", "run_id", "start_time"),
+        sa.Index("ix_traces_correlation_time", "correlation_id", "start_time"),
+        sa.Index("ix_traces_job_time", "job_id", "start_time"),
+        sa.Index("ix_traces_user_time", "user_id", "start_time"),
+        sa.Index("ix_traces_start_time", "start_time"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -512,6 +519,9 @@ class TraceModel(Base):
         sa.Uuid(), sa.ForeignKey("jobs.id"), nullable=True
     )
     correlation_id: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    # A workflow id, or the logical root trace id for a synchronous request.
+    # No FK: synchronous runs do not create workflow_runs rows.
+    run_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
     start_time: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -525,6 +535,7 @@ class SpanModel(Base):
     """One step within a trace: an agent, tool, or LLM call (FR-9)."""
 
     __tablename__ = "spans"
+    __table_args__ = (sa.Index("ix_spans_trace_time", "trace_id", "start_time"),)
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     trace_id: Mapped[uuid.UUID] = mapped_column(
@@ -540,21 +551,55 @@ class SpanModel(Base):
     tokens: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     status: Mapped[str] = mapped_column(_SPAN_STATUS_ENUM, nullable=False)
     duration: Mapped[float | None] = mapped_column(sa.Float(), nullable=True)
+    start_time: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    end_time: Mapped[datetime.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
 
 
 class CostLedgerModel(Base):
     """Token and cost accounting per job (FR-9). Holds no secret material."""
 
     __tablename__ = "cost_ledger"
+    __table_args__ = (
+        sa.UniqueConstraint("span_id", name="uq_cost_ledger_span"),
+        sa.Index("ix_cost_ledger_trace_time", "trace_id", "created_at"),
+        sa.CheckConstraint(
+            "(tokens_prompt IS NULL OR tokens_prompt >= 0) AND "
+            "(tokens_completion IS NULL OR tokens_completion >= 0) AND "
+            "(total_tokens IS NULL OR total_tokens >= 0) AND (cost IS NULL OR cost >= 0)",
+            name="ck_cost_ledger_nonnegative",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), primary_key=True)
     # Nullable: a synchronous call incurs cost without a job.
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid(), sa.ForeignKey("jobs.id"), nullable=True
     )
-    tokens_prompt: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
-    tokens_completion: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
-    cost: Mapped[float] = mapped_column(sa.Float(), nullable=False)
+    trace_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("traces.id", ondelete="CASCADE"), nullable=True
+    )
+    span_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("spans.id", ondelete="CASCADE"), nullable=True
+    )
+    provider: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+    model: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    tokens_prompt: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    tokens_completion: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    usage_status: Mapped[str] = mapped_column(
+        sa.String(32), server_default="unavailable", nullable=False
+    )
+    cost: Mapped[float | None] = mapped_column(sa.Float(), nullable=True)
+    cost_status: Mapped[str] = mapped_column(
+        sa.String(32), server_default="unavailable", nullable=False
+    )
+    rate_source: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    prompt_rate_per_million: Mapped[float | None] = mapped_column(sa.Float(), nullable=True)
+    completion_rate_per_million: Mapped[float | None] = mapped_column(sa.Float(), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )

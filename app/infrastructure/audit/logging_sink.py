@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from app.application.observability.context import get_current_correlation_id
 from app.application.ports.audit import AuditEntry, IAuditSink
 
 DEFAULT_AUDIT_LOGGER = "app.audit"
@@ -35,6 +36,6 @@ class LoggingAuditSink(IAuditSink):
             entry.actor_role,
             entry.resource_type or "-",
             entry.resource_id or "-",
-            entry.correlation_id or "-",
+            entry.correlation_id or get_current_correlation_id() or "-",
             entry.detail or {},
         )

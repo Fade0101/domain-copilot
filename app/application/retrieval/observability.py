@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.application.auth.context import Principal
+from app.application.observability.context import get_current_correlation_id
 from app.application.ports.audit import AuditEntry, IAuditSink
 from app.application.ports.system import IClock
 
@@ -36,7 +37,7 @@ class RetrievalObserver:
                 occurred_at=self.clock.now(),
                 resource_type="trace",
                 resource_id=trace_id,
-                correlation_id=trace_id,
+                correlation_id=get_current_correlation_id() or trace_id,
                 detail={
                     "query": query,
                     "started_at": started_at.isoformat(),

@@ -6,10 +6,12 @@ import asyncio
 import math
 from dataclasses import dataclass
 from time import perf_counter
+from uuid import UUID
 
 from app.application.auth.authorization import AuthorizationService
 from app.application.auth.context import Principal
 from app.application.errors import KnowledgeUnavailableError, ProviderError, RetrievalStoreError
+from app.application.observability.context import current_trace, trace_scope
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.reranking import IReranker
 from app.application.ports.retrieval import IRetrievalStore
@@ -65,9 +67,16 @@ class HybridRetrievalUseCase:
     async def execute(
         self, query: str, principal: Principal, *, trace_id: str | None = None
     ) -> RetrievalResult:
+        trace_id = trace_id or self._ids.new_id()
+        parent = current_trace()
+        if parent is not None and str(parent.trace_id) == trace_id:
+            return await self._execute(query, principal, trace_id)
+        with trace_scope(UUID(trace_id), UUID(principal.user_id.value), kind="retrieval"):
+            return await self._execute(query, principal, trace_id)
+
+    async def _execute(self, query: str, principal: Principal, trace_id: str) -> RetrievalResult:
         self._authorization.require_permission(principal, Permission.ASK_QUESTION)
         query = validate_query(query)
-        trace_id = trace_id or self._ids.new_id()
         started_at = self._observer.clock.now()
         started = perf_counter()
         timings: dict[str, float] = {}

@@ -18,6 +18,8 @@ from app.application.agents.contracts import CaseSummary, ResearchFindings, Term
 from app.application.agents.evidence import VerifiedEvidenceRegistry
 from app.application.clinical_tools.contracts import ToolName
 from app.application.clinical_tools.execution import ClinicalToolExecutor
+from app.application.observability.context import current_trace, get_current_correlation_id
+from app.application.observability.recording import observe
 from app.application.ports.audit import AuditEntry
 from app.application.ports.llm import (
     CompletionRequest,
@@ -140,6 +142,16 @@ class GuidelineResearcherAgent:
         return self._tools
 
     async def execute(self, summary: CaseSummary) -> ResearchFindings:
+        async with observe(self._observer, "agent.guideline_researcher", "agent") as data:
+            result = await self._execute(summary)
+            data.update(
+                outcome="refused" if result.refused else "completed",
+                iterations=result.iterations,
+                termination_reason=result.termination_reason.value,
+            )
+            return result
+
+    async def _execute(self, summary: CaseSummary) -> ResearchFindings:
         """Execute guideline research for the given case summary."""
         deadline = time.monotonic() + self._timeout_seconds
         registry = _VerifiedEvidenceRegistry()
@@ -355,14 +367,14 @@ class GuidelineResearcherAgent:
         if self._observer:
             await self._observer.sink.record(
                 AuditEntry(
-                    actor_id="system",
+                    actor_id=str(context.user_id) if (context := current_trace()) else "system",
                     actor_role="agent",
                     action="guideline_researcher.execute",
                     outcome="refused" if refused else "completed",
                     occurred_at=self._observer.clock.now(),
                     resource_type="workflow",
                     resource_id=str(summary.workflow_id),
-                    correlation_id=str(summary.workflow_id),
+                    correlation_id=get_current_correlation_id() or str(summary.workflow_id),
                     detail={
                         "query": summary.clinical_question,
                         "telemetry": json.dumps(telemetry, allow_nan=False),

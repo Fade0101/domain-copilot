@@ -29,6 +29,8 @@ from app.application.clinical_tools.contracts import (
     ToolName,
 )
 from app.application.clinical_tools.execution import ClinicalToolExecutor
+from app.application.observability.context import current_trace, get_current_correlation_id
+from app.application.observability.recording import observe
 from app.application.ports.audit import AuditEntry
 from app.application.ports.llm import (
     CompletionRequest,
@@ -82,6 +84,16 @@ class SafetyCheckerAgent:
         return self._tools
 
     async def execute(self, findings: ResearchFindings) -> SafetyVerdict:
+        async with observe(self._observer, "agent.safety_checker", "agent") as data:
+            result = await self._execute(findings)
+            data.update(
+                outcome="refused" if result.refused else "completed",
+                iterations=result.iterations,
+                termination_reason=result.termination_reason.value,
+            )
+            return result
+
+    async def _execute(self, findings: ResearchFindings) -> SafetyVerdict:
         """Execute safety evaluation on the provided research findings."""
         # 1. Fail-closed check on input findings
         if findings.refused or not findings.findings or findings.findings.strip() == REFUSAL:
@@ -402,14 +414,14 @@ class SafetyCheckerAgent:
         if self._observer:
             await self._observer.sink.record(
                 AuditEntry(
-                    actor_id="system",
+                    actor_id=str(context.user_id) if (context := current_trace()) else "system",
                     actor_role="agent",
                     action="safety_checker.execute",
                     outcome="safe" if can_proceed else "refused",
                     occurred_at=self._observer.clock.now(),
                     resource_type="workflow",
                     resource_id=str(findings.workflow_id),
-                    correlation_id=str(findings.workflow_id),
+                    correlation_id=get_current_correlation_id() or str(findings.workflow_id),
                     detail={
                         "status": status.value,
                         "flags_count": str(len(flags)),
