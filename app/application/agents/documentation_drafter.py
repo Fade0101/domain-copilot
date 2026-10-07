@@ -125,8 +125,8 @@ class DocumentationDrafterAgent:
         # 2. Deterministic claim partitioning
         verified_safe, excluded = partition_verdict_claims(verdict)
 
-        # 3. If zero verified safe claims exist, refuse immediately
-        if not verified_safe:
+        # 3. If zero verified safe claims and no verified citations exist, refuse immediately
+        if not verified_safe and (verdict.status != SafetyStatus.SAFE or not verdict.citations):
             return ClinicalNoteDraft(
                 workflow_id=verdict.workflow_id,
                 draft_id=draft_digest(REFUSAL),
@@ -146,7 +146,13 @@ class DocumentationDrafterAgent:
             )
 
         # 4. Fail-closed context serialization (prevent mid-sentence truncation)
-        supported_context = serialize_supported_claims(verified_safe)
+        if verified_safe:
+            supported_context = serialize_supported_claims(verified_safe)
+        else:
+            # Verified safe findings without medication claims
+            supported_context = "\n".join(
+                f"[{i + 1}] {c.text_snippet}" for i, c in enumerate(verdict.citations)
+            )[:4000]
         if supported_context is None:
             # Complete verified claims exceed tool capacity (4,000 characters)
             deferred = tuple(

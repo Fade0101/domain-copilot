@@ -42,6 +42,7 @@ class LLMSettings(BaseModel):
     max_tokens: int = 1024
     timeout_seconds: int = 60
     api_key: SecretStr | None = None
+    base_url: str | None = None
     ollama_base_url: str = "http://localhost:11434"
 
 

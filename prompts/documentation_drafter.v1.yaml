@@ -16,6 +16,11 @@ template: |
   check_interactions, validate_dosage, finalize_clinical_note, or any other tool.
   Unauthorized tool calls are blocked by server-side policy.
 
+  RULES:
+  1. You MUST start by calling the draft_clinical_note tool passing the clinical_question and case_summary.
+  2. Do NOT output clinical note text before calling draft_clinical_note.
+  3. Base all drafts strictly on verified safe findings.
+
   STRICT SAFETY & CLAIM BOUNDARIES:
   - You may ONLY assert clinical statements that are explicitly marked as VERIFIED_SAFE.
   - DO NOT assert any claims that are marked UNSUPPORTED or FLAGGED.

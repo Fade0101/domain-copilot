@@ -8,8 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt ./
 # The assessment runs local embeddings on CPU; avoid downloading CUDA runtimes.
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install -r requirements.txt
+RUN pip install --default-timeout=1000 torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --default-timeout=1000 --retries 10 -r requirements.txt
 
 RUN groupadd --system copilot && useradd --system --gid copilot --home-dir /app copilot
 RUN mkdir -p /app/.cache/huggingface && chown -R copilot:copilot /app/.cache

@@ -154,7 +154,11 @@ def _build_llm_adapter(name: str, settings: Settings) -> ILLMProvider:
     key = name.strip().lower()
     if key == "groq":
         api_key = settings.llm.api_key.get_secret_value() if settings.llm.api_key else ""
-        return GroqAdapter(api_key=api_key, default_model=settings.llm.model)
+        return GroqAdapter(
+            api_key=api_key,
+            default_model=settings.llm.model,
+            base_url=settings.llm.base_url,
+        )
     if key == "ollama":
         return OllamaAdapter(
             base_url=settings.llm.ollama_base_url,
