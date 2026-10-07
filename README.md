@@ -4,6 +4,49 @@ A healthcare documentation copilot built on retrieval-augmented generation and a
 multi-agent workflow, with durable long-running (async) jobs. This repository is
 an ITI take-home assessment implementation.
 
+## Reviewer quickstart
+
+You need **Docker Desktop/Engine with Compose**, an internet connection, and a
+**Groq API key** for answers and clinical workflows. Python, Node, PostgreSQL,
+Redis and Ollama do not need to be installed on the host. Allow Docker about
+8 GB of memory for the local embedding/reranking models.
+
+From the repository root, generate local development credentials once (the
+command works in PowerShell and Bash):
+
+```bash
+docker run --rm -v "${PWD}:/workspace" -w /workspace python:3.11-slim python scripts/configure_demo.py
+```
+
+Open the generated `.env` and set **`LLM__API_KEY`** to your Groq key. The helper
+already sets the database connection, random passwords and signing key. Keep
+`LLM__FALLBACK=` empty for this setup. Existing `.env` files are preserved;
+if reusing one, check its database, signing key and demo-password settings.
+
+Start the complete application:
+
+```bash
+docker compose up --build
+```
+
+Open **http://localhost:8000/**. Sign in as `analyst@example.com`,
+`reviewer@example.com`, or `admin@example.com` using **`AUTH__DEMO_PASSWORD`**
+from your local `.env`. Keep `.env` private.
+
+Compose starts PostgreSQL/pgvector, Redis, database migrations, the worker and
+the API/web UI, then automatically ingests five small synthetic demo documents.
+Wait for **`seed` to exit with code 0** before asking about the corpus. Successful
+`migrate` and `seed` containers remain exited; that is normal.
+
+Try: **“According to the Kestrel training policy, what must a minimum
+documentation record contain?”** Expand the citations, then follow
+[the UI walkthrough](docs/WEB-UI.md) for jobs, approvals, final notes and traces.
+
+The first build downloads Python packages; the first ingestion/question downloads
+the local embedding/reranking models. Prepare this once before a live demo.
+Subsequent starts reuse the image, model cache and database. This setup uses Groq
+for chat and does not download an Ollama chat model.
+
 ## Assessment Variant: D0T7
 
 | Axis | Formula | Computation | Result |
@@ -74,22 +117,36 @@ connection on a disposable PostgreSQL service to run its database tests.
 
 ## Run with Docker
 
-Tickets #8/#20 provide PDF/Markdown ingestion on a real Celery/Redis worker,
-with PostgreSQL-owned source files, stage progress, checkpoints and job results.
-Copy `.env.example` to `.env`, choose a local `POSTGRES_PASSWORD`, configure
-`DATABASE__URL` using host `postgres`, and supply `AUTH__SECRET_KEY` (32+
-characters) and a development `AUTH__DEMO_PASSWORD` (12+ characters). Then:
+Use the [reviewer quickstart](#reviewer-quickstart) for first-time setup. To run
+in the background and inspect startup:
 
 ```bash
 docker compose up --build -d
-docker compose run --rm --build seed
+docker compose ps -a
+docker compose logs --tail=40 seed
 ```
 
-The default stack starts migrations, API, worker, PostgreSQL/pgvector and Redis.
-The seed command ingests synthetic PDF and Markdown examples and waits for them
-to become searchable. Repeating it reuses the same document/job IDs and chunks.
-The first ingestion downloads the public local embedding model; its cache is
-retained in a Docker volume. No chat API key is needed for ingestion.
+The application services share one `domain-copilot:local` image. PostgreSQL,
+Redis and model-cache volumes preserve data across restarts. The automatic seed
+includes two PDF/Markdown smoke examples plus the synthetic minimum-record,
+allergy-status and closed-loop handoff policies. Seeding is idempotent; to rerun
+it explicitly, use `docker compose run --rm seed`. No chat API key is needed
+for ingestion, but one is required for Groq-backed Q&A/workflows.
+
+| Check | Expected result / next step |
+| --- | --- |
+| `http://localhost:8000/health` | HTTP 200: API is alive. |
+| `http://localhost:8000/ready` | HTTP 200 when PostgreSQL, Redis, embeddings and Groq are available. A first model load can temporarily return 503; retry after it finishes. |
+| `seed` exits nonzero | Read `docker compose logs --tail=80 seed worker`; rerun seed after fixing the reported problem. |
+| Groq is unavailable | Check `LLM__API_KEY`, internet access and quota. Keep `LLM__FALLBACK=` empty unless Ollama is configured. After changing `.env`, run `docker compose up -d` again. |
+| A port is occupied | Stop the previous application stack or adjust the host port in Compose; the API defaults to 8000, PostgreSQL to 5432, Redis to 6379. |
+
+Stop with `docker compose down`; start again with `docker compose up -d`.
+Do not add `-v` when stopping: that deletes the saved data and model cache.
+
+For the full versioned evidence corpus, after startup run
+`docker compose exec api python scripts/corpus.py ingest --api-url http://api:8000 --output-directory /tmp/corpus-build`.
+This optional import takes longer than the small default demo corpus.
 
 Open **http://localhost:8000/** for the web workspace. Sign in with a seeded
 `analyst@example.com`, `reviewer@example.com`, or `admin@example.com` account and
