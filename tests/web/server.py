@@ -134,13 +134,16 @@ def main() -> None:
             worker_settings["auth"]["secret_key"] = settings.auth.secret_key.get_secret_value()
             artifacts = Path(".artifacts")
             artifacts.mkdir(exist_ok=True)
+            worker_creationflags = 0
+            if sys.platform == "win32":
+                worker_creationflags = subprocess.CREATE_NO_WINDOW
             with (artifacts / "web-worker.log").open("w", encoding="utf-8") as log:
                 process = subprocess.Popen(
                     [sys.executable, "-m", "tests.web.worker"],
                     env={**os.environ, "WEB_TEST_SETTINGS": json.dumps(worker_settings)},
                     stdout=log,
                     stderr=subprocess.STDOUT,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    creationflags=worker_creationflags,
                 )
                 try:
                     yield
