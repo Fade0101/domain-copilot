@@ -64,6 +64,7 @@ ownership, compatibility notes and requirement-to-component mapping.
 | app/presentation/api/schemas/jobs.py | List and retry contracts |
 | app/presentation/api/schemas/knowledge.py | Strict stream flag, optional session, discriminated outcomes |
 | tests/support/job_fakes.py | Implement added list query on existing job double |
+| tests/integration/test_approvals_api.py | Target the pre-approval schema explicitly and verify audit preservation after a rejected downgrade |
 
 ## Reuse and dependency safety
 
@@ -131,6 +132,23 @@ Windows loop-policy fixture compatibility, and Alembic's existing computed FTS
 default. They did not fail the final checks.
 
 ## Remaining integration considerations
+
+### PR #83 migration-test correction
+
+The first GitHub Actions run reported 1690 passed, 2 skipped and one failure in
+`test_downgrade_refuses_to_erase_clinical_audit`. Its relative `-1` downgrade
+removed only the newly added empty history table, so it no longer attempted to
+remove clinical review storage. The test and its empty-schema replay fixture now
+target `e18a9d70c342`, the explicit parent of the human-approval migration.
+The test also checks that the persisted review and its audit events survive the
+rejected downgrade. No production migration or safety guard changed.
+
+The failure was reproduced in Linux before the correction. Afterward, the
+clinical-audit and session-history downgrade tests both passed (2 passed).
+`ruff check .`, `ruff format --check .` (391 files), `mypy .` (323 source files),
+`lint-imports` (3 kept, 0 broken), and the OpenAPI drift check all passed.
+
+### API integration notes
 
 Apply `alembic upgrade head` before using persistent history. Framework 422
 responses intentionally change to the common typed envelope. Ask SSE buffers
