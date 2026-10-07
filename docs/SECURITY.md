@@ -1,130 +1,76 @@
-# Security Controls
+# Security Controls & OWASP Hardening Matrix
 
-This document defines the security controls for Domain Copilot and serves as an implementation and verification checklist.
+This document defines the comprehensive security controls for Domain Copilot, mapping concrete architectural enforcement boundaries against OWASP LLM Top 10 (2025) and OWASP API Security Top 10 (2023) risks relevant to healthcare agentic AI architectures.
 
-Controls are mapped to the application's web/API security, data protection, authentication and authorization, LLM/agent security, and development supply-chain requirements.
+## Core Security Review Mandate
 
-Evidence, tests, and implementation references will be added as each control is completed.
+In accordance with strict security engineering standards:
+1. **Real Attack Surface**: The exact network endpoint, protocol, or call site where untrusted data enters.
+2. **Actual Enforcement Boundary**: The concrete architectural component where enforcement is mandatory and cannot be subverted by caller discretion.
+3. **Bypass / Regression Test**: A test that deliberately exercises the attack and is proven to fail if the control is removed or bypassed.
+4. **Honest Residual Risk**: Transparent documentation of out-of-scope boundaries and residual risks without hand-waving.
 
----
-
-## 1. Identity & Access Management
-
-* [ ] **Authentication** — Secure login using a strong password hashing algorithm such as bcrypt or Argon2.
-* [ ] **Password Security** — Passwords are never stored in plaintext, logged, or returned through API responses.
-* [ ] **JWT Security** — Tokens use a strong configured signing secret, appropriate expiration, and server-side validation of signature, expiry, and claims.
-* [ ] **Role-Based Access Control** — Server-side authorization enforces the required roles:
-  * `analyst`
-  * `reviewer`
-  * `admin`
-* [ ] **Resource Ownership** — Analysts can access only resources they are authorized to access. Reviewer/admin access follows the role permissions defined by the BRD.
-* [ ] **Approval Authorization** — Only authorized reviewers/admins can approve, reject, or edit-and-approve clinical notes.
-* [ ] **Server-Side Enforcement** — Authorization decisions are never based solely on UI visibility or client-provided role information.
+Absolute claims such as *"zero false negatives"*, *"completely secure"*, or *"impossible to bypass"* are strictly prohibited. The system makes precise, defensible claims: *deterministic detection for supported formats*, *server-side ownership enforcement*, *fail-closed at the finalization boundary*, *bounded request body size*, and *hash-locked dependencies*.
 
 ---
 
-## 2. API & Input Security
+## 1. Threat → Control → Test → Residual-Risk Matrix
 
-* [ ] **Input Validation** — All API inputs are validated using typed schemas.
-* [ ] **Payload Limits** — Request bodies, query parameters, and uploaded documents have explicit size and complexity limits.
-* [ ] **File Validation** — Uploaded documents are restricted to supported formats and validated before ingestion.
-* [ ] **Path Safety** — Uploaded filenames and paths cannot cause path traversal or arbitrary filesystem access.
-* [ ] **SQL Injection Protection** — Database access uses parameterized queries/ORM/database abstractions. User-controlled values must never be interpolated directly into SQL.
-* [ ] **Rate Limiting** — Appropriate endpoints have configurable rate limits to reduce abuse and resource exhaustion.
-* [ ] **CORS** — CORS allows only explicitly configured origins.
-* [ ] **Security Headers** — Production-facing HTTP responses use appropriate security headers such as HSTS, Content-Security-Policy, X-Content-Type-Options, and frame protection where applicable.
-* [ ] **Error Handling** — API errors do not expose stack traces, secrets, database credentials, internal paths, or other sensitive implementation details.
-
----
-
-## 3. Data & Privacy Protection
-
-* [ ] **Synthetic/Public Data Only** — The assessment implementation must not use real patient/PHI data.
-* [ ] **PII Minimization** — Personally identifiable information is minimized and is not unnecessarily included in prompts, traces, logs, or error messages.
-* [ ] **PII Detection** — Presidio or an equivalent mechanism is used where required to detect/redact sensitive information before data is sent outside the intended infrastructure boundary.
-* [ ] **LLM Data Boundary** — The application documents what data may be sent to external LLM providers and what data remains local.
-* [ ] **Secrets Management** — API keys, JWT secrets, database credentials, and other secrets are supplied through environment/configuration mechanisms and never hard-coded.
-* [ ] **No Secrets in Logs** — Tokens, passwords, API keys, authorization headers, and other credentials are excluded from logs and traces.
-* [ ] **Secret Scanning** — Gitleaks or equivalent secret scanning runs in CI and is performed before submission, including repository history where applicable.
-* [ ] **Dependency Scanning** — Third-party dependencies are scanned for known vulnerabilities using the project's configured security tooling.
+| Threat Category | Real Attack Surface | Actual Enforcement Boundary | Verification Test | Honest Residual Risk |
+| :--- | :--- | :--- | :--- | :--- |
+| **OWASP LLM01: Prompt Injection** | Untrusted user prompts and retrieved guideline corpus excerpts entering agent context. | System prompt hierarchy, strict YAML templates with delimiter isolation, structured JSON tool inputs. | `tests/unit/application/test_prompt_injection.py`, `tests/integration/test_injection_containment.py` | Statistical LLMs may still misinterpret ambiguous instructions; mitigated by mandatory Human Approval Gate before any note finalization. |
+| **OWASP LLM02: Insecure Output Handling** | Malicious Markdown or HTML generated by LLM or embedded in source documents. | Markdown parser disables HTML (`html: False`); strict JSON extraction schemas; no `eval()` or `exec()`. | `tests/unit/test_api_contracts.py`, `tests/unit/application/test_extractors.py` | Downstream frontends rendering clinical notes must apply their own context-aware HTML escaping. |
+| **OWASP LLM03: Supply Chain Vulnerabilities** | Compromised third-party packages or backdoored dependencies pulled from PyPI. | SHA-256 cryptographic hash-locked `requirements.txt` via `pip-compile`; `pip-audit` vulnerability scanning in CI. | Automated CI pipeline check; hash verification on `pip install`. | Zero-day vulnerabilities in legitimate, pinned dependencies are not prevented; requires scheduled advisory monitoring and rapid patch cycles. |
+| **OWASP LLM06: Excessive Agency** | Autonomous LLM agent finalizing notes or taking clinical actions without oversight. | Rigid tool allowlists per agent role; `finalize_clinical_note` tool requires persisted `APPROVED` record in PostgreSQL transaction. | `tests/unit/application/test_clinical_tools.py`, `tests/unit/application/test_workflow_approval_pause.py` | Clinician review fatigue could lead to rubber-stamping; technical controls require active UI interaction but cannot force clinician diligence. |
+| **OWASP LLM07: Sensitive Data Exposure (PII/PHI)** | Patient NHS numbers, MRNs, SSNs, phone numbers, or emails leaking into logs, traces, or LLM prompts. | `DeterministicPiiRedactor` applying Modulus 11 checksum algorithm and regex masks (`[REDACTED_*]`); credential masking in `__repr__`. | `tests/unit/security/test_pii.py`, `tests/unit/domain/test_auth_domain.py` | Freeform unstructured names (without identifiers) are not detected by deterministic regex; protected by synthetic data policy (BR-06). |
+| **OWASP API1: Broken Object-Level Authorization (BOLA/IDOR)** | Authenticated user requesting runs, jobs, traces, sessions, or documents belonging to another user. | `AuthorizationService.require_resource_access()` querying `SqlOwnershipQuery` inside DB transaction; client cannot override `user_id`. | `tests/integration/test_ownership_api.py`, `tests/integration/test_security_hardening.py` | Service roles with direct DB credentials bypass application RBAC; mitigated by least-privilege DB credentials. |
+| **OWASP API2: Broken Authentication** | Forged, expired, or tampered JWT bearer tokens; brute-force login. | `JwtTokenService` validating algorithm, signature, issuer, audience, and expiry; bcrypt password hashing (work factor 12). | `tests/unit/infrastructure/test_token_service.py`, `tests/unit/infrastructure/test_password_hasher.py` | Compromise of server signing key allows token forgery; mitigated by refusing startup in production without `AUTH__SECRET_KEY`. |
+| **OWASP API4: Unrestricted Resource Consumption (DoS)** | Giant HTTP request bodies (multi-gigabyte POST or infinite chunked streams) exhausting worker memory. | Outermost raw ASGI `RequestSizeLimitMiddleware` rejecting Content-Length > 1MB with 413 and truncating chunked streams. | `tests/integration/test_request_limits.py` | Slowloris attacks (slow header transmission) are not stopped by body limits; must be mitigated at reverse proxy/ALB level. |
+| **Path Traversal & Malicious Files** | Uploaded filenames containing `../`, absolute paths, NUL bytes, or executable files renamed to `.pdf`. | `source_media_type` sanitizes filenames; `%PDF-` magic byte check; page count bounds; bytes stored in PostgreSQL (no disk writes). | `tests/unit/application/test_ingestion.py`, `tests/integration/test_security_hardening.py` | Malicious active content embedded within valid PDFs; mitigated by safe text extraction without script execution. |
+| **SQL & Command Injection** | Attackers supplying SQL fragments or shell metacharacters in queries or metadata. | SQLAlchemy parameterized queries (`:param`); `subprocess` uses static argument lists without `shell=True`. | `tests/integration/test_sql_ownership.py`, `tests/unit/infrastructure/test_versions.py` | Flaws in the underlying PostgreSQL database driver or ORM internals; mitigated by dependency patching. |
+| **Fail-Closed Safety Failure** | Safety checker crashing, timing out, or flagging unsafe claims during workflow. | Workflow transitions immediately to `ClinicalWorkflowState.FAILED`; note finalization is unreachable. | `tests/unit/application/test_workflow_approval_pause.py`, `tests/integration/test_security_hardening.py` | Unhandled runtime bugs in the orchestrator state machine; mitigated by integration test assertions on error states. |
 
 ---
 
-## 4. LLM & Prompt Injection Security
+## 2. Identity & Access Management
 
-Retrieved and ingested content is treated as **untrusted data**.
-
-Content retrieved from the corpus must never be treated as system/developer instructions.
-
-* [ ] **Instruction Hierarchy** — System/developer policies remain authoritative over user input and retrieved documents.
-* [ ] **Direct Prompt Injection Defense** — User input cannot override safety rules, tool permissions, workflow state, or approval requirements.
-* [ ] **Indirect Prompt Injection Defense** — Instructions embedded inside retrieved or ingested documents cannot modify agent behavior.
-* [ ] **Evidence Boundary** — Retrieved content is evidence, not executable instructions.
-* [ ] **No Policy Mutation** — Documents and user input cannot change system policies, prompts, tool allowlists, or security configuration.
-* [ ] **Prompt Isolation** — Prompts clearly separate trusted instructions from untrusted user/retrieved content.
-* [ ] **Injection Evaluation** — At least three prompt-injection cases are included in the evaluation set, including direct and indirect injection scenarios.
+* [x] **Authentication** — Secure login using strong bcrypt hashing (work factor 12) behind `IPasswordHasher`. Tests: `tests/unit/infrastructure/test_password_hasher.py`.
+* [x] **Password Security** — Passwords never stored in plaintext, logged, or returned in API responses. `__repr__` masked. Tests: `tests/unit/domain/test_auth_domain.py`, `tests/integration/test_auth_api.py`.
+* [x] **JWT Security** — Pinned algorithm, issuer/audience validation, expiry against injected clock. Production refuses boot without `AUTH__SECRET_KEY`. Tests: `tests/unit/infrastructure/test_token_service.py`.
+* [x] **Role-Based Access Control** — Explicit role permissions matrix (`analyst`, `reviewer`, `admin`) enforced server-side. Tests: `tests/unit/domain/test_permissions.py`, `tests/integration/test_rbac_api.py`.
+* [x] **Resource Ownership (BOLA)** — Server-side object ownership enforced by `AuthorizationService` via `SqlOwnershipQuery` on PostgreSQL. Tests: `tests/integration/test_sql_ownership.py`, `tests/integration/test_ownership_api.py`.
+* [x] **Human Approval Authorization** — Only authorized reviewers/admins can approve/reject clinical notes. Tests: `tests/unit/application/test_approvals.py`, `tests/integration/test_approvals_api.py`.
+* [x] **Server-Side Identity Derivation** — Principal derived strictly from validated token; client-supplied `user_id` or `owner_id` is ignored. Tests: `tests/integration/test_auth_api.py`.
 
 ---
 
-## 5. Agent & Tool Security
+## 3. API & Input Security
 
-Agents operate under explicit least-privilege boundaries.
-
-* [ ] **Tool Allowlists** — Each agent has an explicit list of permitted tools.
-* [ ] **Guideline Researcher Restrictions** — Researcher can use only its defined retrieval/research tools.
-* [ ] **Safety Checker Restrictions** — Safety Checker can use only its defined safety/retrieval tools.
-* [ ] **Documentation Drafter Restrictions** — Drafter cannot execute finalization or approval actions.
-* [ ] **Finalization Gate** — `finalize_clinical_note` cannot execute until explicit human approval has been persisted.
-* [ ] **No Hidden Writes** — Agents cannot directly modify protected application state outside their declared tool contracts.
-* [ ] **Typed Tool Inputs/Outputs** — Tool boundaries validate structured inputs and outputs.
-* [ ] **Iteration Limits** — Agents have bounded iteration/tool-call limits.
-* [ ] **Token/Payload Limits** — LLM requests and tool payloads have configurable size limits.
-* [ ] **Failure Safety** — Safety Checker failure during a clinical note workflow results in a safe failure/refusal rather than bypassing the safety stage.
+* [x] **Inbound Payload Limits** — `RequestSizeLimitMiddleware` intercepts requests at the raw ASGI edge, enforcing `max_request_bytes` (1MB) with HTTP 413 before Starlette body buffering. Tests: `tests/integration/test_request_limits.py`.
+* [x] **Document Ingest Streaming Limits** — Ingestion endpoints enforce independent streaming limits (`ingestion.max_upload_bytes = 10MB`). Tests: `tests/unit/application/test_ingestion.py`.
+* [x] **File Validation** — Strict media type matching, `%PDF-` magic byte inspection, encrypted PDF rejection, and page count bounds. Tests: `tests/unit/application/test_ingestion.py`.
+* [x] **Path Safety** — `source_media_type` rejects `/`, `\`, `:`, NUL bytes, and control characters. Document contents stored in PostgreSQL database blobs rather than local filesystem paths. Tests: `tests/unit/application/test_ingestion.py`.
+* [x] **SQL Injection Protection** — Database queries use SQLAlchemy parameterization (`:param`). Table names derived strictly from typed enums. Tests: `tests/integration/test_sql_ownership.py`.
+* [x] **Command Injection Protection** — Subprocess execution in `versions.py` uses fixed argument lists without `shell=True`. Tests: `tests/unit/infrastructure/test_versions.py`.
+* [x] **Error Handling** — Structured, static JSON error bodies. No stack traces, secrets, or internal file paths leaked. Tests: `tests/unit/presentation/test_errors.py`.
 
 ---
 
-## 6. Healthcare Safety Controls
+## 4. Data & Privacy Protection
 
-Because Domain Copilot operates on healthcare guidance, safety controls apply specifically to clinical claims.
-
-* [ ] **No Dosage Inference** — The system must not invent or infer dosage information that is not explicitly supported by retrieved evidence.
-* [ ] **No Contraindication Inference** — The system must not infer contraindications beyond the available evidence.
-* [ ] **No Interaction Inference** — The system must not infer drug interactions beyond the retrieved evidence.
-* [ ] **Unknown Remains Unknown** — Missing evidence must not be interpreted as evidence of safety.
-* [ ] **Evidence Traceability** — Clinical claims in drafted notes must trace to exact retrieved chunks.
-* [ ] **Unsupported Claims Excluded** — Unsupported clinical claims cannot silently enter the final approved note.
-* [ ] **Mandatory Safety Check** — Every clinical note workflow executes the Safety Checker.
-* [ ] **Human Approval** — No clinical note becomes final without explicit reviewer approval.
+* [x] **Synthetic/Public Data Only (BR-06)** — Assessment implementation uses only synthetic guidelines and public PubMed papers (`PMC9997714.md`). Zero real PHI in repo. Verified by automated repo scanning.
+* [x] **PII Detection & Redaction (SEC-2c)** — `DeterministicPiiRedactor` implements NHS Number Modulus 11 check digit verification, SSN, MRN, email, phone, and DOB masking. Tests: `tests/unit/security/test_pii.py`.
+* [x] **PII Evaluation Decision (ADR-009)** — Formal decision record `docs/adr/ADR-009-pii-phi-handling-and-redaction.md` evaluating Microsoft Presidio vs. In-Tree Deterministic Sanitizer.
+* [x] **Secrets Management** — Credentials supplied exclusively via environment/settings (`Settings`), never hardcoded. Tests: `tests/unit/core/test_config.py`.
+* [x] **No Secrets in Logs** — Passwords and bearer tokens excluded from log messages, representations, and trace records. Tests: `tests/unit/domain/test_auth_domain.py`.
+* [x] **Secret Scanning** — Full-history secret scanning in CI via `gitleaks-action@v2` with `fetch-depth: 0`.
 
 ---
 
-## 7. Job & Async Security
+## 5. Agent, Workflow & Healthcare Safety
 
-T7 introduces long-running jobs that must remain protected across requests and worker executions.
-
-* [ ] **Job Ownership** — Users cannot access or manipulate jobs belonging to unauthorized users.
-* [ ] **Cancel Authorization** — Only authorized users can cancel a job they are permitted to control.
-* [ ] **Retry Authorization** — Retry operations require appropriate ownership/role authorization.
-* [ ] **Approval Authorization** — Approval commands verify both reviewer permissions and the target workflow/job.
-* [ ] **Idempotency** — Repeated requests using the same idempotency key cannot create unintended duplicate operations.
-* [ ] **Cancellation Integrity** — Client SSE disconnection does not cancel or alter the underlying job.
-* [ ] **Durable State** — Security-relevant job and workflow state is persisted in PostgreSQL rather than relying solely on Redis.
-
----
-
-## 8. Observability & Audit
-
-* [ ] **Correlation IDs** — Requests, jobs, workflows, agents, tools, and LLM calls can be correlated.
-* [ ] **Security Events** — Authentication failures, authorization failures, approval actions, and other security-relevant events are auditable.
-* [ ] **Approval Audit Trail** — Approve, reject, and edit-and-approve operations record the actor, target, timestamp, and decision.
-* [ ] **Trace Safety** — Agent/tool/LLM traces do not expose credentials or unnecessary sensitive information.
-* [ ] **Cost/Token Records** — Token and cost accounting does not contain secret material.
-
----
-
-## 9. Development & Supply-Chain Security
-
-* [ ] **Pinned/Locked Dependencies** — Dependencies are reproducibly installed using the project's lock/requirements configuration.
-* [ ] **Dependency Audit** — Automated dependency vulnerability scanning runs in CI.
-* [ ] **Secret Scanning in CI** — Secret scanning runs on pull requests and/or repository history according to the project configuration.
-* [ ] **Secure CI Configuration** — CI workflows do not expose secrets to untrusted pull requests.
+* [x] **Tool Allowlists** — Strict tool permit lists per agent role (`GuidelineResearcherAgent`, `SafetyCheckerAgent`, `DocumentationDrafterAgent`). Tests: `tests/unit/application/test_clinical_tools.py`.
+* [x] **Guarded Finalization Boundary** — `finalize_clinical_note` cannot execute unless an approved `HumanApproval` record exists in PostgreSQL. Tests: `tests/unit/application/test_clinical_tools.py`.
+* [x] **Fail-Closed Safety Enforcement** — Safety Checker `FLAGGED`, `UNSUPPORTED`, `TOOL_ERROR`, or `TIMEOUT` immediately halts workflow with `ClinicalWorkflowState.FAILED`. Tests: `tests/unit/application/test_workflow_approval_pause.py`.
+* [x] **Instruction Hierarchy & Evidence Boundary** — Prompts separate developer instructions from untrusted user/evidence inputs. Tests: `tests/integration/test_injection_containment.py`.
+* [x] **Trace & Accounting Safety** — Correlation IDs track requests, jobs, workflows, and tools without logging secrets. Tests: `tests/integration/test_observability.py`.

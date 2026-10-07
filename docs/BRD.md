@@ -519,47 +519,47 @@ All significant operations run as background jobs on a **Celery + Redis** task q
 
 | Req ID   | Title                                | Status     | Evidence / Notes                              |
 | -------- | ------------------------------------ | ---------- | --------------------------------------------- |
-| FR-1     | Document Ingestion Pipeline          | ❌ Not Started |                                            |
-| FR-2     | Hybrid Retrieval & Citations         | ❌ Not Started |                                            |
+| FR-1     | Document Ingestion Pipeline          | 🔶 Partial | #8 implements PDF/Markdown extract → clean → chunk → embed → index on the #20 runner, with durable source/stages/errors, citation metadata, duplicate suppression, 202 submission and checkpoint resume. Real PostgreSQL/Redis/Celery tests and a real-model Docker seed cover ingestion; AC-1.7 progress push remains #21. See INGESTION.md and ADR-001. |
+| FR-2     | Hybrid Retrieval & Citations         | ✅ Implemented | #10 reuses #7/#9 for dense + PostgreSQL FTS, deterministic RRF k=60 and local bge-reranker-v2-m3 scoring. Grounded ask returns source excerpts with the exact citation contract and deterministic refusal for insufficient/invalid/conflicting evidence. #8 supplies AC-2.4 chunking. Unit/API/database tests and real MiniLM/BGE retrieval verify the path; see RETRIEVAL.md and ADR-008. |
 | FR-3     | Evaluation Harness                   | ❌ Not Started |                                            |
 | FR-4     | Multi-Agent System                   | ❌ Not Started |                                            |
 | FR-5     | Orchestration & Approval Gate        | ❌ Not Started |                                            |
 | FR-6     | Real-Time Streaming                  | ❌ Not Started |                                            |
 | FR-7     | API Surface & UI                     | ❌ Not Started |                                            |
-| FR-8     | Authentication & RBAC                | ❌ Not Started |                                            |
-| FR-9     | Observability & Cost Accounting      | ❌ Not Started |                                            |
-| AR-1     | Clean Architecture                   | 🔶 Partial  | Folder structure scaffolded                   |
-| AR-2     | Provider Abstraction                 | ❌ Not Started |                                            |
-| AR-3     | Dependency Injection                 | ❌ Not Started |                                            |
-| AR-4     | Configuration & Prompts              | ❌ Not Started |                                            |
-| AR-5     | Domain Errors                        | ❌ Not Started |                                            |
-| AR-6     | Data Stores & Migrations             | ❌ Not Started |                                            |
-| AR-7     | ADRs (≥4)                            | ❌ Not Started |                                            |
-| AR-8     | Testing                              | ❌ Not Started |                                            |
-| AR-9     | Packaging (docker compose)           | ❌ Not Started |                                            |
+| FR-8     | Authentication & RBAC                | ✅ Implemented | AC-8.1: JWT (HS256, algorithm pinned on decode; signature/exp/iat/iss/aud/token-type/required-claims validated) behind `ITokenService`, bcrypt behind `IPasswordHasher` — neither library importable from domain/application (import-linter + AST boundary test). AC-8.2: three roles exactly (`analyst`/`reviewer`/`admin`), cumulative matrix in `domain/auth/permissions.py`, asserted literally and exhaustively in `tests/unit/domain/test_permissions.py`. AC-8.3: every decision made in `AuthorizationService`; identity derived only from the validated token plus the **stored** user record (role reloaded per request, so a demotion needs no token expiry); role/`user_id`/`owner_id` from body, query and headers proven inert. AC-8.4/SEC-1a: object ownership for runs/jobs/traces/sessions read from PostgreSQL via `SqlOwnershipQuery` (`SELECT user_id … WHERE id = :id`, table from an enum-keyed map, id bound, non-UUID ids miss safely); durability proven against real PostgreSQL 16 across a fresh connection pool in `tests/integration/test_sql_ownership.py`. Document ingestion is admin-only. 401 vs 403 split with a single static 401 message + `WWW-Authenticate: Bearer`. Migration `7f2a1c4b9e03` (sessions table + `user_id` indexes) verified upgrade/downgrade/re-upgrade; `addc7d39b90f` untouched; single Alembic head. In-memory adapters remain the no-database development fallback and the app refuses to start in production without `DATABASE__URL`/`AUTH__SECRET_KEY`. Approval *endpoints* are FR-5/#19, not FR-8. (#5) |
+| FR-9     | Observability & Cost Accounting      | 🔶 Partial | #10 records retrieval/ask events through the existing audit port and #6 trace/span models: query, candidate counts, ranks/scores, selected/cited IDs, latency, prompt/token usage and refusal with requester ownership. General tracing views, cost accounting and dashboards remain separate work. |
+| AR-1     | Clean Architecture                   | ✅ Implemented | Layer boundaries enforced by import-linter (3 contracts) **and** AST boundary test, both green; RegisterDocument slice proves ports/adapters swap (#2, ADR-005) |
+| AR-2     | Provider Abstraction                 | ✅ Implemented | Segregated `ILLMProvider` (completion/streaming/tool-calling) with 2 config-selected chat adapters — `GroqAdapter` (OpenAI-compatible) + `OllamaAdapter` (local) — and a separate `IEmbeddingProvider` with `LocalEmbeddingAdapter` (sentence-transformers, 384-dim); per-capability, transient-only chat fallback via `FallbackLLMProvider`, with primary and fallback order chosen in the composition root from `settings.llm.provider`/`fallback` (invalid name → typed `ProviderConfigurationError`); embeddings are single-impl by current scope (AR-2b needs ≥1, no hosted embedder configured). Provider contract + selection tests green (#7, ADR-007) |
+| AR-3     | Dependency Injection                 | ✅ Implemented | Implemented for the current application surface: the composition root (`core/container.py`) constructs current adapters/providers and request dependencies bridge through `Depends()`; future adapters are wired as their tickets land (#3, ADR-006) |
+| AR-4     | Configuration & Prompts              | ✅ Implemented | Nested pydantic-settings for LLM/embedding/queue/retrieval/limits/retries (secrets via env + `SecretStr`, none committed — C6); versioned `prompts/*.yaml` loaded through `IPromptProvider`/`YamlPromptProvider`, schema-validated at startup, never inline literals (#3, ADR-006) |
+| AR-5     | Domain Errors                        | ✅ Implemented | Typed `DomainError`+`ApplicationError` taxonomies incl. `JobNotFoundError`/`ConfigurationError`; single type→(status,code) boundary mapping with structured `{detail,code}` body, server faults static-messaged, and a fail-safe 500 that never leaks internals (SDD A.5.1); later tickets add more typed errors (#3, ADR-006) |
+| AR-6     | Data Stores & Migrations             | 🔶 Partial | #6 shared ORM/Alembic metadata is used by #20 jobs, #9 retrieval and #8 durable sources/artifacts/progress. Additive revision 95c7e8a12d40 preserves prior documents/vectors; migration replay, schema drift and Redis-loss recovery are tested. Workflow/approval/trace/cost persistence remains separate work. |
+| AR-7     | ADRs (≥4)                            | 🔶 Partial | ADR-001/003/004/005/006/007/008 are written. ADR-001 records chunking/ingestion embeddings; ADR-008 records RRF, cross-encoder scoring and grounded Q&A. Required ADR-002 remains reserved for orchestration. |
+| AR-8     | Testing                              | 🔶 Partial | Unit tests use ports/fakes; real parser, PostgreSQL/pgvector, Redis and separate Celery tests cover ingestion/retrieval, API authorization, duplicates, worker death and migration preservation. A Docker smoke exercises real model weights. Agent/tool contract tests remain with their feature tickets. |
+| AR-9     | Packaging (docker compose)           | ✅ Implemented | Default docker compose up starts API, Celery worker, PostgreSQL/pgvector, Redis and migrations. Synthetic PDF/Markdown seed and upload CLI are documented in INGESTION.md; fresh setup and repeated seed verified with the real model. .env.example includes limits and blank credentials. (#8/#20) |
 | SEC-1    | OWASP Web Top 10                     | ❌ Not Started |                                            |
 | SEC-2    | OWASP LLM Top 10                     | ❌ Not Started |                                            |
 | SEC-3    | Secrets Hygiene                      | ❌ Not Started |                                            |
-| ENG-1    | ≥30 Commits / ≥6 Days               | ❌ Not Started | 2 commits on 1 day so far                  |
+| ENG-1    | ≥30 Commits / ≥6 Days               | 🔶 Partial  | 11 commits across 4 days so far (target ≥30 / ≥6) |
 | ENG-2    | ≥8 PRs                              | ❌ Not Started |                                            |
 | ENG-3    | GitHub Issues + Board                | ❌ Not Started |                                            |
 | ENG-4    | GitHub Actions CI                    | ❌ Not Started |                                            |
 | ENG-5    | Branch Protection                    | ❌ Not Started |                                            |
 | ENG-6    | Repo Hygiene                         | 🔶 Partial  | README, .gitignore exist (empty)              |
-| ENG-7    | Agentic Workflow Doc                 | ❌ Not Started |                                            |
-| ENG-8    | AI Usage Log                         | ❌ Not Started |                                            |
-| T7-01    | Real Queue + Workers                 | ❌ Not Started |                                            |
-| T7-02    | Immediate Return (HTTP 202)          | ❌ Not Started |                                            |
+| ENG-7    | Agentic Workflow Doc                 | ✅ Implemented | 6 categories documented in `AGENTIC-WORKFLOW.md`: instruction files, versioned prompts/skills, scoped sub-agents (security-reviewer, test-writer, doc-writer), pre-commit hooks, custom commands, versioned prompt library (#4) |
+| ENG-8    | AI Usage Log                         | ✅ Implemented | `AI-USAGE-LOG.md` with 5 real entries: delegated tasks, AI mistakes (architecture violation, error leakage, false status claim, boolean edge case), verification methods (#4) |
+| T7-01    | Real Queue + Workers                 | ✅ Implemented | Celery + Redis, separate processes, PostgreSQL results; real-service tests and ADR-004 (#20). |
+| T7-02    | Immediate Return (HTTP 202)          | 🔶 Partial | Generic authenticated POST /jobs (#20) and raw POST /documents/ingest (#8) return 202 with a committed job UUID and polling URL; the upload does not wait for extraction/model loading. Evaluation/workflow routes remain #12/#17. |
 | T7-03    | Progress Push (SSE)                  | ❌ Not Started |                                            |
-| T7-04    | Survive Restart                      | ❌ Not Started |                                            |
-| T7-05    | Resumable                            | ❌ Not Started |                                            |
-| T7-06    | Cancellable                          | ❌ Not Started |                                            |
-| T7-07    | Idempotent                           | ❌ Not Started |                                            |
-| T7-08    | Job Management API                   | ❌ Not Started |                                            |
-| T7-09    | Job Lifecycle Model                  | ❌ Not Started |                                            |
-| BR-01    | No Dosage Inference                  | ❌ Not Started |                                            |
-| BR-02    | No Contraindication Inference        | ❌ Not Started |                                            |
+| T7-04    | Survive Restart                      | 🔶 Partial | Hard worker death and explicit PG resume/reconcile tested; heartbeat/recovery scheduling remains #22. |
+| T7-05    | Resumable                            | ✅ Implemented | Named PG checkpoints skip committed steps after restart; effect boundary documented in JOBS.md. |
+| T7-06    | Cancellable                          | 🔶 Partial | Durable flag and cooperative CANCELLED outcome exist; cancel API/Redis transport remains #21. |
+| T7-07    | Idempotent                           | 🔶 Partial | #8 deduplicates immutable source uploads per owner/hash/type/version, reuses active/completed jobs and resumes artifacts with deterministic chunk/provenance upserts. Concurrent duplicates and repeat seed are verified. General canonical-input job keys and policy remain #22. |
+| T7-08    | Job Management API                   | 🔶 Partial | Owned job detail/state/result/error polling (#20); list/cancel/retry remain later tickets. |
+| T7-09    | Job Lifecycle Model                  | 🔶 Partial | Exact six-state lifecycle and illegal-transition rejection tested; FAILED retry exception remains #22. |
+| BR-01    | No Dosage Inference                  | 🔶 Partial | #10 Q&A requires explicit dosage evidence and emits complete indexed excerpts, never model-written dosage prose. Missing evidence uses the Ticket #10 / AC-2.6 exact refusal. Clinical-note workflow controls remain #15/#17. |
+| BR-02    | No Contraindication Inference        | 🔶 Partial | #10 tests missing contraindication/interaction statements and refuses unsupported evidence. Answer text is copied from indexed sources; broader clinical-note controls remain #15/#17. |
 | BR-03    | Safety Checker Mandatory             | ❌ Not Started |                                            |
-| BR-04    | Refusal Over Fabrication             | ❌ Not Started |                                            |
-| BR-05    | Citation Traceability                | ❌ Not Started |                                            |
+| BR-04    | Refusal Over Fabrication             | 🔶 Partial | #10 Q&A tests empty/low/conflicting evidence, invalid generation and foreign citation IDs; all return exactly Not enough information in the corpus. Agent/clinical-note behavior remains separate. |
+| BR-05    | Citation Traceability                | 🔶 Partial | #10 answer citations use the seven AC-2.5 fields from real indexed chunks and reranker scores. PostgreSQL integration tests resolve each citation; clinical-note flagging/finalization remains separate work. |
 | BR-06    | No Real Patient Data                 | ✅ Implemented | Synthetic/public data policy established   |

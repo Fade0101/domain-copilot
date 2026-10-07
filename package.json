@@ -1,0 +1,12 @@
+{
+  "name": "domain-copilot-web-tests",
+  "private": true,
+  "type": "module",
+  "description": "No runtime JS dependencies; browser and SSE regression tests for the web UI.",
+  "scripts": {
+    "test": "node --test tests/web/unit/*.test.js",
+    "test:browser": "playwright test"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": { "@playwright/test": "1.63.0" }
+}

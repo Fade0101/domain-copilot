@@ -1,0 +1,21 @@
+# Only application artifacts enter the image build context; never local secrets.
+*
+!requirements.txt
+!alembic.ini
+!app/
+!app/**
+!migrations/
+!migrations/**
+!prompts/
+!prompts/**
+!scripts/
+!scripts/ingest_documents.py
+!scripts/corpus.py
+!scripts/evaluate.py
+!data/
+!data/corpus/
+!data/corpus/**
+!data/evaluation/
+!data/evaluation/**
+**/__pycache__/
+**/*.pyc
