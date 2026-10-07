@@ -75,6 +75,7 @@ from app.application.ports.workflow import IWorkflowRunRepository
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.observability import RetrievalObserver
 from app.application.retrieval.use_cases import HybridRetrievalUseCase
+from app.application.sessions import SessionService
 from app.application.workflow.fallback import InformationalRagFallback
 from app.application.workflow.handler import ClinicalWorkflowJobHandler
 from app.application.workflow.orchestrator import ClinicalWorkflowOrchestrator
@@ -113,6 +114,7 @@ from app.infrastructure.persistence.sql.approval_store import PostgresApprovalSt
 from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestionStore
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
+from app.infrastructure.persistence.sql.session_store import PostgresSessionStore
 from app.infrastructure.persistence.sql.trace_store import PostgresTraceStore
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
 from app.infrastructure.persistence.sql.workflow_repository import (
@@ -455,6 +457,15 @@ class Container:
             self._reranker,
             self._authorization_service,
             self._retrieval_observer,
+            self._id_generator,
+        )
+
+    def session_service(self) -> SessionService:
+        return SessionService(
+            PostgresSessionStore(self._database.session_factory) if self._database else None,
+            self._user_repository,
+            self._authorization_service,
+            self._clock,
             self._id_generator,
         )
 

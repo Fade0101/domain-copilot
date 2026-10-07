@@ -58,6 +58,9 @@ jobs:
         run: |
           lint-imports
 
+      - name: Published OpenAPI is current
+        run: python -m scripts.export_openapi --check
+
       # Run twice: the first call builds the schema from an empty database,
       # proving the migration chain is reproducible from clean; the second proves
       # it is a no-op on an up-to-date database. `alembic heads` then asserts the

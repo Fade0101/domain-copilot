@@ -146,6 +146,9 @@ for the query contract, rate configuration, readiness scope and accounting limit
 
 ## Documentation
 
+- [API Contracts](docs/API-CONTRACTS.md) and [published OpenAPI](docs/openapi.json) — endpoints,
+  citations, refusals, typed errors, roles, ownership, SSE and session history
+
 - [BRD](docs/BRD.md) — business requirements and the traceability matrix
 - [System Design](docs/SYSTEM-DESIGN.md) — authoritative architecture and data flows
 - [Architecture Map](docs/ARCHITECTURE.md) — where new code goes, per-layer rules

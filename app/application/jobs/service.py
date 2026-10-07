@@ -20,7 +20,7 @@ from app.application.ports.jobs import IJobStore
 from app.application.ports.queue import IJobQueue
 from app.application.ports.repositories import IUserRepository
 from app.application.ports.system import IClock, IIdGenerator
-from app.domain.auth.value_objects import ResourceType
+from app.domain.auth.value_objects import Permission, ResourceType
 from app.domain.jobs.entities import Job, JobState
 from app.domain.jobs.events import JobEventPage
 from app.domain.shared.errors import InvalidStateTransitionError, InvariantViolationError
@@ -57,6 +57,42 @@ class JobService:
         await self._authorization.require_resource_access(
             Principal.from_user(user), ResourceType.JOB, str(job_id)
         )
+
+    async def _current(self, principal: Principal) -> Principal:
+        if self._authorization is None or self._users is None:
+            raise ConfigurationError("Authenticated job controls require a user repository.")
+        user = await self._users.get_by_id(principal.user_id)
+        if user is None:
+            raise UnknownPrincipalError("Job actor is no longer present.")
+        return Principal.from_user(user)
+
+    async def list_jobs(
+        self,
+        principal: Principal,
+        *,
+        state: JobState | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Job]:
+        current = await self._current(principal)
+        assert self._authorization is not None
+        self._authorization.require_permission(current, Permission.VIEW_OWN_JOBS)
+        if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+            raise InvariantViolationError("Invalid job pagination.")
+        owner = None if current.may_access_any(ResourceType.JOB) else UUID(current.user_id.value)
+        return await self.store.list_jobs(owner_id=owner, state=state, limit=limit, offset=offset)
+
+    async def retry(self, job_id: UUID, reason: str, principal: Principal) -> Job:
+        """Expose #22's audited FAILED retry under its existing execution lock."""
+        current = await self._current(principal)
+        assert self._authorization is not None
+        self._authorization.require_permission(current, Permission.MANAGE_ALL_JOBS)
+        await self._authorization.require_resource_access(current, ResourceType.JOB, str(job_id))
+        async with self.store.lock(job_id) as locked:
+            if locked is None:
+                raise InvalidStateTransitionError("Job is currently executing.")
+            await locked.retry_failed(job_id, current.user_id, reason, self._clock.now())
+        return await self.dispatch(job_id)
 
     async def events_after(
         self, job_id: UUID, sequence: int, principal: Principal, *, limit: int = 100

@@ -25,6 +25,11 @@ class JobAcceptedResponse(BaseModel):
     status_url: str
 
 
+class RetryJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    reason: str = Field(min_length=3, max_length=4000)
+
+
 class JobStatusResponse(ResourceAccessResponse):
     """Extend Ticket 5's ownership projection with the actual PostgreSQL state."""
 
@@ -58,3 +63,9 @@ class JobStatusResponse(ResourceAccessResponse):
             completed_at=job.completed_at,
             cancellation_requested=job.cancellation_requested,
         )
+
+
+class JobListResponse(BaseModel):
+    items: list[JobStatusResponse]
+    limit: int
+    offset: int

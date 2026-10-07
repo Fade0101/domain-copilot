@@ -33,6 +33,10 @@ async def submit_evaluation(
     principal: Principal = Depends(require_permission(Permission.MANAGE_ALL_JOBS)),
     service: EvaluationService = Depends(get_evaluation_service),
 ) -> JobAcceptedResponse:
+    """Admin-only submission, with no request body. The server pins its configured catalog.
+
+    Returns a durably accepted job and Location/status_url before evaluation executes.
+    """
     return _accepted(await service.submit(principal), request, response)
 
 

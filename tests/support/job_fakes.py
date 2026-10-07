@@ -223,6 +223,21 @@ class FakeJobStore(IJobStore):
     async def get(self, job_id: UUID) -> Job | None:
         return deepcopy(self.jobs.get(job_id))
 
+    async def list_jobs(
+        self, *, owner_id: UUID | None, state: JobState | None, limit: int, offset: int
+    ) -> list[Job]:
+        jobs = [
+            job
+            for job in self.jobs.values()
+            if (owner_id is None or job.user_id == owner_id)
+            and (state is None or job.state == state)
+        ]
+        return deepcopy(
+            sorted(jobs, key=lambda job: (job.created_at, job.id), reverse=True)[
+                offset : offset + limit
+            ]
+        )
+
     async def transition(
         self,
         job_id: UUID,

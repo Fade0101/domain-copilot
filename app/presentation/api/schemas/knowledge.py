@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.application.retrieval.use_cases import MAX_QUERY_CHARACTERS
 
@@ -17,6 +18,10 @@ class RetrieveRequest(BaseModel):
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     question: str = Field(min_length=1, max_length=MAX_QUERY_CHARACTERS)
+    stream: bool = Field(default=False, strict=True, description="Return grounded SSE when true.")
+    session_id: UUID | None = Field(
+        default=None, description="Persist this exchange in the caller's own session."
+    )
 
 
 class CitationResponse(BaseModel):
@@ -43,3 +48,22 @@ class AskResponse(BaseModel):
     citations: list[CitationResponse]
     refused: bool
     trace_id: UUID
+
+
+class AnswerResponse(AskResponse):
+    """A grounded answer. Citation fields are exactly the Ticket #10 contract."""
+
+    refused: Literal[False]
+    citations: list[CitationResponse] = Field(min_length=1)
+
+
+class RefusalResponse(AskResponse):
+    """Successful safe refusal, returned with HTTP 200 rather than a server failure."""
+
+    answer: Literal["Not enough information in the corpus"]
+    refused: Literal[True]
+    citations: list[CitationResponse] = Field(max_length=0)
+
+
+AskOutcome = Annotated[AnswerResponse | RefusalResponse, Field(discriminator="refused")]
+ask_outcome: TypeAdapter[AnswerResponse | RefusalResponse] = TypeAdapter(AskOutcome)

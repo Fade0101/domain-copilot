@@ -54,6 +54,12 @@ class IJobStore(Protocol):
 
     async def get(self, job_id: UUID) -> Job | None: ...
 
+    async def list_jobs(
+        self, *, owner_id: UUID | None, state: JobState | None, limit: int, offset: int
+    ) -> list[Job]:
+        """Filter before pagination; newest created_at then descending id."""
+        ...
+
     async def transition(
         self,
         job_id: UUID,
