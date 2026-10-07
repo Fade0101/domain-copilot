@@ -68,9 +68,14 @@ from app.application.ports.reranking import IReranker
 from app.application.ports.retrieval import IRetrievalStore
 from app.application.ports.system import IClock, IIdGenerator
 from app.application.ports.tokens import ITokenService
+from app.application.ports.workflow import IWorkflowRunRepository
 from app.application.qa.use_cases import AskUseCase
 from app.application.retrieval.observability import RetrievalObserver
 from app.application.retrieval.use_cases import HybridRetrievalUseCase
+from app.application.workflow.fallback import InformationalRagFallback
+from app.application.workflow.handler import ClinicalWorkflowJobHandler
+from app.application.workflow.orchestrator import ClinicalWorkflowOrchestrator
+from app.application.workflow.service import ClinicalWorkflowService
 from app.core.clinical_tools import build_clinical_tool_factory
 from app.core.config import Settings, get_settings
 from app.core.evaluation import EvaluationComponents, build_evaluation_components
@@ -102,6 +107,9 @@ from app.infrastructure.persistence.sql.ingestion_store import PostgresIngestion
 from app.infrastructure.persistence.sql.ownership_query import SqlOwnershipQuery
 from app.infrastructure.persistence.sql.retrieval_store import PostgresRetrievalStore
 from app.infrastructure.persistence.sql.user_repository import SqlUserRepository
+from app.infrastructure.persistence.sql.workflow_repository import (
+    PostgresWorkflowRunRepository,
+)
 from app.infrastructure.prompts.yaml_prompt_provider import YamlPromptProvider
 from app.infrastructure.queue.celery_queue import (
     CeleryJobQueue,
@@ -476,6 +484,38 @@ class Container:
         return self._jobs.evaluation
 
     @property
+    def workflow_repository(self) -> IWorkflowRunRepository:
+        if self._database is None:
+            raise ConfigurationError("DATABASE__URL is required for workflow repository.")
+        return PostgresWorkflowRunRepository(self._database.session_factory)
+
+    def clinical_workflow_orchestrator(self) -> ClinicalWorkflowOrchestrator:
+        if self._database is None:
+            raise ConfigurationError("DATABASE__URL is required for clinical workflow.")
+        return ClinicalWorkflowOrchestrator(
+            researcher_factory=self.guideline_researcher_agent,
+            safety_checker_factory=self.safety_checker_agent,
+            drafter_factory=self.documentation_drafter_agent,
+            tool_factory=self.clinical_tool_factory(),
+            approval_service=self.approval_service(),
+            workflow_repo=self.workflow_repository,
+            user_repo=self._user_repository,
+            fallback=InformationalRagFallback(self.ask_use_case()),
+            clock=self._clock,
+        )
+
+    @property
+    def workflow_service(self) -> ClinicalWorkflowService:
+        self.job_service
+        return ClinicalWorkflowService(
+            workflow_repo=self.workflow_repository,
+            jobs=self.job_service,
+            approvals=self.approval_service(),
+            users=self._user_repository,
+            authorization=self._authorization_service,
+        )
+
+    @property
     def password_hasher(self) -> IPasswordHasher:
         return self._password_hasher
 
@@ -658,6 +698,9 @@ def build_job_runtime(
                 clock,
                 options,
                 stage_timeout_seconds=settings.ingestion.stage_timeout_seconds,
+            ),
+            ClinicalWorkflowJobHandler(
+                lambda: Container(settings=settings).clinical_workflow_orchestrator()
             ),
         ]
     registry = JobHandlerRegistry(handlers)
