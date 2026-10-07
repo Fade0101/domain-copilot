@@ -121,7 +121,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(KnowledgeUnavailableError)
     async def _handle_knowledge(_: Request, exc: KnowledgeUnavailableError) -> JSONResponse:
-        logger.warning("Knowledge request failed: %s", type(exc).__name__)
+        logger.warning("Knowledge request failed: %s", type(exc).__name__, exc_info=exc)
         return JSONResponse(
             status_code=503,
             content=_body("Knowledge service is unavailable", "KNOWLEDGE_UNAVAILABLE"),

@@ -26,9 +26,10 @@ class GroqAdapter(ILLMProvider):
         self,
         api_key: str = "",
         default_model: str = "llama-3.3-70b-versatile",
+        base_url: str | None = None,
         client: AsyncGroq | None = None,
     ):
-        self._client = client or AsyncGroq(api_key=api_key)
+        self._client = client or AsyncGroq(api_key=api_key, base_url=base_url)
         self._default_model = default_model
 
     async def aclose(self) -> None:

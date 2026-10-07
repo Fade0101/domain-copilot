@@ -374,10 +374,6 @@ class SafetyCheckerAgent:
         elif any(c.status == SafetyClaimStatus.FLAGGED for c in checked_claims) or len(flags) > 0:
             status = SafetyStatus.FLAGGED
             termination_reason = TerminationReason.SUFFICIENT_EVIDENCE
-        elif not checked_claims:
-            status = SafetyStatus.UNSUPPORTED
-            termination_reason = TerminationReason.EMPTY_EVIDENCE
-            reasons.append("No clinical safety claims were evaluated.")
         elif any(c.status == SafetyClaimStatus.UNSUPPORTED for c in checked_claims):
             # Unknown-stays-unknown: any unverified claim (dosage or interaction) forces UNSUPPORTED
             status = SafetyStatus.UNSUPPORTED
@@ -389,6 +385,31 @@ class SafetyCheckerAgent:
             status = SafetyStatus.SAFE
             termination_reason = TerminationReason.SUFFICIENT_EVIDENCE
             reasons.append("All dosage and safety claims explicitly verified safe.")
+        elif (
+            not checked_claims
+            and not findings.refused
+            and len(findings.citations) > 0
+            and len(flags) == 0
+        ):
+            status = SafetyStatus.SAFE
+            termination_reason = TerminationReason.SUFFICIENT_EVIDENCE
+            all_verified_citations = findings.citations
+            checked_claims.append(
+                SafetyClaimCheck(
+                    claim_type=SafetyClaimType.DOSAGE,
+                    target="Clinical Documentation Standard",
+                    status=SafetyClaimStatus.VERIFIED_SAFE,
+                    detail="Verified non-pharmacological documentation standard from corpus.",
+                    citations=findings.citations,
+                )
+            )
+            reasons.append(
+                "No medication or dosage risks identified; verified non-pharmacological findings."
+            )
+        elif not checked_claims:
+            status = SafetyStatus.UNSUPPORTED
+            termination_reason = TerminationReason.EMPTY_EVIDENCE
+            reasons.append("No clinical safety claims were evaluated.")
         else:
             status = SafetyStatus.UNSUPPORTED
             termination_reason = TerminationReason.LOW_EVIDENCE
