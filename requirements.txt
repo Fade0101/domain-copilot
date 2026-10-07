@@ -2392,6 +2392,7 @@ torch==2.14.1 ; sys_platform == 'darwin' \
     # via sentence-transformers
 torch==2.14.1 ; sys_platform != 'darwin' \
     --hash=sha256:0bd2fb0c4098856bc5af59fe5988bf38bdbcdb6550b44273c12ae425cb8ec17e \
+    --hash=sha256:305a61f61f35f128579f299c5bd33d475f6a01c6307336139632e30856c4854d \
     --hash=sha256:100df7e44af5c973606cfef571a14b36b0acfd165d6bbc7aabe3edac95c9ccbd \
     --hash=sha256:192745b92c9ac392298e73de950cd02d8a7886117923073d890625622d343ede \
     --hash=sha256:24b279ee181df14dc353f3e3f0e3f088d88a38175989dadb5645c0194830d4de \
