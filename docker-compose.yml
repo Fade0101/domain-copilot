@@ -67,7 +67,7 @@ services:
       INGESTION__STAGE_TIMEOUT_SECONDS: ${INGESTION__STAGE_TIMEOUT_SECONDS:-600}
       LLM__PROVIDER: ${LLM__PROVIDER:-groq}
       LLM__FALLBACK: ${LLM__FALLBACK-}
-      LLM__MODEL: ${LLM__MODEL:-llama-3.1-8b-instant}
+      LLM__MODEL: ${LLM__MODEL:-openai/gpt-oss-20b}
       LLM__API_KEY: ${LLM__API_KEY:-}
       LLM__OLLAMA_BASE_URL: ${LLM__OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       LLM__MAX_TOKENS: ${LLM__MAX_TOKENS:-1024}
@@ -85,7 +85,7 @@ services:
       RERANKER__BATCH_SIZE: ${RERANKER__BATCH_SIZE:-4}
       RERANKER__MAX_LENGTH: ${RERANKER__MAX_LENGTH:-1024}
     volumes:
-      - embedding_cache:/app/.cache/huggingface
+      - "${MODEL_CACHE_PATH:-embedding_cache}:/app/.cache/huggingface"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -107,7 +107,7 @@ services:
       AUTH__DEMO_PASSWORD: ${AUTH__DEMO_PASSWORD:?Generate .env using scripts/configure_demo.py; see README}
       AUTH__SEED_DEMO_ACCOUNTS: ${AUTH__SEED_DEMO_ACCOUNTS:-true}
     volumes:
-      - embedding_cache:/app/.cache/huggingface
+      - "${MODEL_CACHE_PATH:-embedding_cache}:/app/.cache/huggingface"
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

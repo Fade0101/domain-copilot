@@ -19,6 +19,7 @@ def test_demo_configuration_generates_matching_private_credentials(tmp_path: Pat
     assert len(settings["AUTH__DEMO_PASSWORD"] or "") >= 12
     assert len({password, settings["AUTH__SECRET_KEY"], settings["AUTH__DEMO_PASSWORD"]}) == 3
     assert settings["LLM__FALLBACK"] == ""
+    assert settings["LLM__MODEL"] == "openai/gpt-oss-20b"
     assert not settings["LLM__API_KEY"]
     assert settings["ENVIRONMENT"] == "development"
 
