@@ -55,6 +55,16 @@ class InMemoryWorkflowRepo(IWorkflowRunRepository):
     async def save(self, run: WorkflowRun) -> None:
         self.runs[run.id] = run
 
+    async def get_by_job_id(self, job_id: UUID) -> WorkflowRun | None:
+        for run in self.runs.values():
+            if run.approval_job_id == job_id:
+                return run
+        return None
+
+    async def bind_job(self, workflow_id: UUID, job_id: UUID, now: datetime) -> None:
+        if workflow_id in self.runs:
+            self.runs[workflow_id] = self.runs[workflow_id].bind_job(job_id, now)
+
     async def update_state(
         self,
         workflow_id: UUID,
