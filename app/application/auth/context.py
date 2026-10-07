@@ -105,10 +105,12 @@ class ExecutionContext:
         cls, principal: Principal, correlation_id: str | None = None
     ) -> ExecutionContext:
         """Build a propagation envelope for ``principal``."""
+        from app.application.observability.context import get_current_correlation_id
+
         return cls(
             user_id=principal.user_id.value,
             role=principal.role.value,
-            correlation_id=correlation_id,
+            correlation_id=correlation_id or get_current_correlation_id(),
         )
 
     def to_dict(self) -> dict[str, str | None]:

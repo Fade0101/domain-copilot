@@ -25,6 +25,7 @@ from fastapi import FastAPI
 
 from app.core.config import Settings, get_settings
 from app.core.container import get_container
+from app.presentation.api.correlation import CorrelationMiddleware
 from app.presentation.api.errors import register_exception_handlers
 from app.presentation.api.openapi import configure_openapi
 from app.presentation.api.routes import (
@@ -35,6 +36,7 @@ from app.presentation.api.routes import (
     health,
     jobs,
     knowledge,
+    observability,
     resources,
     sessions,
 )
@@ -63,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Domain Copilot HTTP API. Bearer JWT identity and stored roles are "
         "checked server-side. See docs/API-CONTRACTS.md for ownership and SSE semantics.",
     )
+    app.add_middleware(CorrelationMiddleware)
 
     app.include_router(health.router)
     app.include_router(auth.router, prefix=settings.api_v1_str)
@@ -73,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge.router, prefix=settings.api_v1_str)
     app.include_router(evaluations.router, prefix=settings.api_v1_str)
     app.include_router(approvals.router, prefix=settings.api_v1_str)
+    app.include_router(observability.router, prefix=settings.api_v1_str)
 
     register_exception_handlers(app)
     configure_openapi(app, settings.api_v1_str)

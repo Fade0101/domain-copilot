@@ -188,6 +188,27 @@ class AuthSettings(BaseModel):
     demo_password: SecretStr | None = None
 
 
+class ModelRateSettings(BaseModel):
+    provider: str = Field(min_length=1, max_length=100)
+    model: str = Field(min_length=1, max_length=255)
+    prompt_per_million: float = Field(ge=0, allow_inf_nan=False)
+    completion_per_million: float = Field(ge=0, allow_inf_nan=False)
+    source: str = Field(min_length=1, max_length=255)
+
+
+class ObservabilitySettings(BaseModel):
+    readiness_timeout_seconds: float = Field(default=3, gt=0, le=30, allow_inf_nan=False)
+    # Explicit deployment rates, including their source/version. Unknown is not free.
+    rates: list[ModelRateSettings] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_rates(self) -> ObservabilitySettings:
+        keys = [(rate.provider, rate.model) for rate in self.rates]
+        if len(set(keys)) != len(keys) or any(not rate.source.strip() for rate in self.rates):
+            raise ValueError("Rates must be unique per provider/model and include a source.")
+        return self
+
+
 class Settings(BaseSettings):
     """Process configuration. Nested groups are populated with the ``__`` delimiter."""
 
@@ -215,6 +236,7 @@ class Settings(BaseSettings):
     prompts: PromptSettings = Field(default_factory=PromptSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
     def is_production(self) -> bool:
         """Return whether this process is configured as a production deployment.

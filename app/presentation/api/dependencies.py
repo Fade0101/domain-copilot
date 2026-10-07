@@ -18,6 +18,9 @@ from app.application.documents.ingestion_service import IngestionService
 from app.application.documents.use_cases import RegisterDocumentUseCase
 from app.application.evaluation.service import EvaluationService
 from app.application.jobs.service import JobService
+from app.application.observability.cost_service import CostService
+from app.application.observability.health_service import HealthService
+from app.application.observability.trace_service import TraceService
 from app.application.ports.embeddings import IEmbeddingProvider
 from app.application.ports.llm import ILLMProvider
 from app.application.ports.prompts import IPromptProvider
@@ -31,6 +34,18 @@ from app.core.container import Container, get_container
 def get_app_container() -> Container:
     """Provide the process-wide composition root."""
     return get_container()
+
+
+def get_trace_service() -> TraceService:
+    return get_container().trace_service()
+
+
+def get_cost_service() -> CostService:
+    return get_container().cost_service()
+
+
+def get_health_service() -> HealthService:
+    return get_container().health_service()
 
 
 async def get_approval_service() -> ApprovalService:

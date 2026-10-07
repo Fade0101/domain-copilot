@@ -124,6 +124,11 @@ def jobs(database_url: str) -> Iterator[Environment]:
     finally:
         with runtime.engine.begin() as connection:
             # All rows are in this module's uniquely named, disposable schema.
+            connection.execute(sa.text("DELETE FROM cost_ledger"))
+            connection.execute(sa.text("DELETE FROM traces"))
+            # Bound workflows have immutable review guards. TRUNCATE is confined
+            # to this fixture's disposable schema, just like the approval suite.
+            connection.execute(sa.text("TRUNCATE workflow_runs CASCADE"))
             connection.execute(sa.text("DELETE FROM jobs"))
             connection.execute(sa.text("DELETE FROM users"))
         client = redis.Redis.from_url(broker)

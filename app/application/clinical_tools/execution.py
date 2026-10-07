@@ -49,6 +49,7 @@ from app.application.errors import (
     ResourceNotFoundError,
     UnknownPrincipalError,
 )
+from app.application.observability.context import get_current_correlation_id, trace_scope
 from app.application.ports.audit import AuditEntry
 from app.application.ports.clinical_tools import IClinicalToolContracts, IFinalClinicalNoteWriter
 from app.application.ports.llm import ToolCall, ToolDefinition, ToolResult
@@ -127,6 +128,15 @@ class ClinicalToolExecutor:
 
     async def execute(self, call: ToolCall) -> ToolResult:
         trace_id = self._identifiers.new_id()
+        with trace_scope(
+            UUID(trace_id),
+            UUID(self.__scope.actor_id.value),
+            run_id=self.__scope.workflow_id,
+            kind="tool",
+        ):
+            return await self._execute(call, trace_id)
+
+    async def _execute(self, call: ToolCall, trace_id: str) -> ToolResult:
         started_at = self._observer.clock.now()
         started = perf_counter()
         principal: Principal | None = None
@@ -209,7 +219,7 @@ class ClinicalToolExecutor:
                     occurred_at=self._observer.clock.now(),
                     resource_type="trace",
                     resource_id=trace_id,
-                    correlation_id=trace_id,
+                    correlation_id=get_current_correlation_id() or trace_id,
                     detail={
                         "query": "",
                         "started_at": started_at.isoformat(),

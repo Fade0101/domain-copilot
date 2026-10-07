@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.application.errors import JobCancelled, JobNotFoundError, JobPaused, JobStoreError
 from app.application.jobs.registry import JobHandlerRegistry, validate_json
+from app.application.observability.context import trace_scope
+from app.application.observability.recording import observe
 from app.application.ports.jobs import IJobContext, IJobStore
 from app.application.ports.system import IClock
+from app.application.retrieval.observability import RetrievalObserver
 from app.domain.jobs.entities import Job, JobState
 from app.domain.shared.errors import InvariantViolationError
 
@@ -65,11 +68,13 @@ class JobRunner:
         clock: IClock,
         *,
         max_checkpoint_bytes: int = 1_048_576,
+        observer: RetrievalObserver | None = None,
     ) -> None:
         self._store = store
         self._handlers = handlers
         self._clock = clock
         self._checkpoint_limit = max_checkpoint_bytes
+        self._observer = observer
 
     async def run(self, job_id: UUID) -> None:
         async with self._store.lock(job_id) as store:
@@ -80,28 +85,55 @@ class JobRunner:
                 raise JobNotFoundError("Job not found.")
             if job.terminal or job.state == JobState.PENDING:
                 return
-            if job.state == JobState.QUEUED:
-                job = await store.transition(job.id, JobState.STARTED, self._clock.now())
-            context = JobContext(job, store, self._clock, self._checkpoint_limit)
+            correlation_id = job.correlation_id or job.id
+            raw_run = job.input_payload.get("workflow_id")
             try:
-                if job.cancellation_requested:
-                    raise JobCancelled()
-                handler = self._handlers.get(job.operation_type)
-                handler.validate(job.input_payload)
-                result = await handler.run(context)
-                validate_json(result, self._checkpoint_limit)
-            except JobPaused:
-                return
-            except JobCancelled:
-                await store.transition(job.id, JobState.CANCELLED, self._clock.now())
-                return
-            except JobStoreError:
-                # Leave STARTED for checkpoint resume after PostgreSQL recovers.
-                raise
-            except Exception:
-                # Handler exception text may contain secrets or sensitive input.
-                await store.transition(
-                    job.id, JobState.FAILED, self._clock.now(), error="JOB_HANDLER_FAILED"
-                )
-                return
-            await store.transition(job.id, JobState.COMPLETED, self._clock.now(), result=result)
+                run_id = UUID(str(raw_run)) if raw_run else correlation_id
+            except ValueError:
+                run_id = correlation_id
+            with trace_scope(
+                uuid4(),
+                job.user_id,
+                correlation_id=str(correlation_id),
+                run_id=run_id,
+                job_id=job.id,
+                kind="job",
+            ):
+                async with observe(self._observer, "job.execute", "job", root=True) as data:
+                    data["operation"] = job.operation_type
+                    await self._execute(store, job, data)
+
+    async def _execute(self, store: IJobStore, job: Job, data: dict[str, Any]) -> None:
+        if job.state == JobState.QUEUED:
+            job = await store.transition(job.id, JobState.STARTED, self._clock.now())
+        data["state"] = job.state.value
+        context = JobContext(job, store, self._clock, self._checkpoint_limit)
+        try:
+            if job.cancellation_requested:
+                raise JobCancelled()
+            handler = self._handlers.get(job.operation_type)
+            handler.validate(job.input_payload)
+            result = await handler.run(context)
+            validate_json(result, self._checkpoint_limit)
+        except JobPaused:
+            data["outcome"] = "paused"
+            return
+        except JobCancelled:
+            job = await store.transition(job.id, JobState.CANCELLED, self._clock.now())
+            data.update(state=job.state.value, outcome="cancelled")
+            return
+        except JobStoreError:
+            # Leave STARTED for checkpoint resume after PostgreSQL recovers.
+            raise
+        except Exception:
+            # Handler exception text may contain secrets or sensitive input.
+            job = await store.transition(
+                job.id, JobState.FAILED, self._clock.now(), error="JOB_HANDLER_FAILED"
+            )
+            data.update(state=job.state.value, outcome="error")
+            return
+        job = await store.transition(job.id, JobState.COMPLETED, self._clock.now(), result=result)
+        data.update(
+            state=job.state.value,
+            outcome="cancelled" if job.state == JobState.CANCELLED else "completed",
+        )

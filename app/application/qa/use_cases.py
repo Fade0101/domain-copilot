@@ -6,9 +6,11 @@ import asyncio
 import json
 from dataclasses import dataclass
 from time import perf_counter
+from uuid import UUID
 
 from app.application.auth.context import Principal
 from app.application.errors import KnowledgeUnavailableError, ProviderError
+from app.application.observability.context import trace_scope
 from app.application.ports.llm import CompletionRequest, ILLMProvider, ModelOptions
 from app.application.ports.prompts import IPromptProvider
 from app.application.ports.system import IIdGenerator
@@ -55,6 +57,10 @@ class AskUseCase:
     async def execute(self, question: str, principal: Principal) -> AskResult:
         question = validate_query(question)
         trace_id = self._ids.new_id()
+        with trace_scope(UUID(trace_id), UUID(principal.user_id.value), kind="ask"):
+            return await self._execute(question, principal, trace_id)
+
+    async def _execute(self, question: str, principal: Principal, trace_id: str) -> AskResult:
         started_at = self._observer.clock.now()
         started = perf_counter()
         telemetry: dict[str, object] = {"refused": True, "cited_chunk_ids": []}

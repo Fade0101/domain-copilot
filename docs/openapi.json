@@ -1777,6 +1777,133 @@
         "title": "SessionResponse",
         "type": "object"
       },
+      "SpanPage": {
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/SpanResponse"
+            },
+            "title": "Spans",
+            "type": "array"
+          },
+          "trace": {
+            "$ref": "#/components/schemas/TraceResponse"
+          }
+        },
+        "required": [
+          "trace",
+          "spans",
+          "limit",
+          "offset"
+        ],
+        "title": "SpanPage",
+        "type": "object"
+      },
+      "SpanResponse": {
+        "properties": {
+          "duration": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outputs": {
+            "additionalProperties": true,
+            "title": "Outputs",
+            "type": "object"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "step_type": {
+            "title": "Step Type",
+            "type": "string"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens"
+          },
+          "trace_id": {
+            "format": "uuid",
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trace_id",
+          "name",
+          "step_type",
+          "inputs",
+          "outputs",
+          "status",
+          "tokens",
+          "duration",
+          "start_time",
+          "end_time"
+        ],
+        "title": "SpanResponse",
+        "type": "object"
+      },
       "SubmitJobRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1866,6 +1993,257 @@
           "expires_at"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "TracePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TraceResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "limit",
+          "offset"
+        ],
+        "title": "TracePage",
+        "type": "object"
+      },
+      "TraceResponse": {
+        "properties": {
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "run_id",
+          "job_id",
+          "correlation_id",
+          "start_time",
+          "end_time"
+        ],
+        "title": "TraceResponse",
+        "type": "object"
+      },
+      "UsageBreakdownResponse": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost"
+          },
+          "known_estimated_cost": {
+            "title": "Known Estimated Cost",
+            "type": "number"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "tokens_completion": {
+            "title": "Tokens Completion",
+            "type": "integer"
+          },
+          "tokens_prompt": {
+            "title": "Tokens Prompt",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "unavailable_cost_calls": {
+            "title": "Unavailable Cost Calls",
+            "type": "integer"
+          },
+          "unavailable_usage_calls": {
+            "title": "Unavailable Usage Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "calls",
+          "tokens_prompt",
+          "tokens_completion",
+          "total_tokens",
+          "unavailable_usage_calls",
+          "unavailable_cost_calls",
+          "known_estimated_cost",
+          "estimated_cost"
+        ],
+        "title": "UsageBreakdownResponse",
+        "type": "object"
+      },
+      "UsageResponse": {
+        "properties": {
+          "breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/UsageBreakdownResponse"
+            },
+            "title": "Breakdown",
+            "type": "array"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_complete": {
+            "title": "Cost Complete",
+            "type": "boolean"
+          },
+          "cost_status": {
+            "title": "Cost Status",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost"
+          },
+          "is_estimate": {
+            "title": "Is Estimate",
+            "type": "boolean"
+          },
+          "known_estimated_cost": {
+            "title": "Known Estimated Cost",
+            "type": "number"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "tokens_completion": {
+            "title": "Tokens Completion",
+            "type": "integer"
+          },
+          "tokens_prompt": {
+            "title": "Tokens Prompt",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "usage_complete": {
+            "title": "Usage Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "calls",
+          "tokens_prompt",
+          "tokens_completion",
+          "total_tokens",
+          "usage_complete",
+          "cost_complete",
+          "known_estimated_cost",
+          "estimated_cost",
+          "breakdown",
+          "currency",
+          "cost_status",
+          "is_estimate",
+          "notice"
+        ],
+        "title": "UsageResponse",
         "type": "object"
       }
     },
@@ -6385,6 +6763,274 @@
         ]
       }
     },
+    "/api/v1/traces": {
+      "get": {
+        "description": "Roles: analyst, reviewer, admin. Owner only for analyst/reviewer; admin has observability access. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "query_traces_api_v1_traces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Correlation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TracePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired bearer token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The caller cannot access this user's observations"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Trace storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Query Traces",
+        "tags": [
+          "observability"
+        ],
+        "x-ownership": "Owner only for analyst/reviewer; admin has observability access.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
     "/api/v1/traces/{trace_id}": {
       "get": {
         "description": "Roles: analyst, reviewer, admin. Owner only for analyst/reviewer; admin has observability access. Identity and current role come from the validated JWT and stored user.",
@@ -6537,6 +7183,450 @@
         ]
       }
     },
+    "/api/v1/traces/{trace_id}/spans": {
+      "get": {
+        "description": "Roles: analyst, reviewer, admin. Owner only for analyst/reviewer; admin has observability access. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "trace_spans_api_v1_traces__trace_id__spans_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpanPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired bearer token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The caller cannot access this user's observations"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Trace storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Trace Spans",
+        "tags": [
+          "observability"
+        ],
+        "x-ownership": "Owner only for analyst/reviewer; admin has observability access.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "description": "Totals cover ALL matching ledger entries, independently of trace pagination.\n\nRoles: analyst, reviewer, admin. Authenticated caller; no owner-selected resource. Identity and current role come from the validated JWT and stored user.",
+        "operationId": "usage_api_v1_usage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "correlation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Correlation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "DOMAIN_ERROR, APPLICATION_ERROR or HTTP_ERROR: invalid operation."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired bearer token",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The caller cannot access this user's observations"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND or HTTP_ERROR."
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP_ERROR: method not allowed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION: conflict with persisted state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UPLOAD_TOO_LARGE."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR or INVARIANT_VIOLATION: invalid input."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INTERNAL_ERROR or CONFIGURATION_ERROR. Static, sanitized detail."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Trace storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Usage",
+        "tags": [
+          "observability"
+        ],
+        "x-ownership": "Authenticated caller; no owner-selected resource.",
+        "x-roles": [
+          "analyst",
+          "reviewer",
+          "admin"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "description": "Liveness probe: the process is up.",
@@ -6673,19 +7763,13 @@
     },
     "/ready": {
       "get": {
-        "description": "Readiness probe: the app is ready to serve requests.\n\nDownstream dependency checks (database, redis) are added by their tickets.",
+        "description": "Readiness requires PostgreSQL, Redis and each configured provider probe to pass.",
         "operationId": "ready_ready_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Ready Ready Get",
-                  "type": "object"
-                }
+                "schema": {}
               }
             },
             "description": "Successful Response"
@@ -6796,7 +7880,7 @@
                 }
               }
             },
-            "description": "JOB_STORE_UNAVAILABLE, KNOWLEDGE_UNAVAILABLE, APPROVAL_STORE_UNAVAILABLE or HISTORY_STORE_UNAVAILABLE. Static, sanitized detail."
+            "description": "A dependency is unavailable or timed out"
           }
         },
         "summary": "Ready",
